@@ -10,6 +10,9 @@ import cors from "cors";
 const app = express();
 app.use(express.json());
 
+// Serve static files from the public directory
+app.use(express.static("public"));
+
 // Add CORS middleware before your MCP routes
 app.use(
     cors({
@@ -199,13 +202,9 @@ app.get("/mcp", handleSessionRequest);
 // Handle DELETE requests for session termination
 app.delete("/mcp", handleSessionRequest);
 
-// Health check endpoint
+// Health check endpoint - serve the home page
 app.get("/", (req, res) => {
-    res.json({
-        status: "ok",
-        message: "Google Sheets MCP Server is running",
-        timestamp: new Date().toISOString(),
-    });
+    res.sendFile("public/index.html", { root: process.cwd() });
 });
 
 // Export for Vercel serverless

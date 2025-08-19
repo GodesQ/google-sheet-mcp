@@ -124,7 +124,8 @@ https://your-project-name.vercel.app
 ### MCP Endpoints
 
 - **Main MCP Endpoint**: `https://your-project-name.vercel.app/mcp`
-- **Health Check**: `https://your-project-name.vercel.app/`
+- **Home Page**: `https://your-project-name.vercel.app/` - Interactive documentation and usage guide
+- **Health Check**: `https://your-project-name.vercel.app/` (same as home page)
 
 ### Using with MCP Clients
 
@@ -193,8 +194,9 @@ The server provides one main tool: `manage-sheet`
 
 ## Testing the Deployment
 
-1. **Health Check**: Visit `https://your-project-name.vercel.app/` to verify the server is running
-2. **MCP Connection**: Use an MCP client to connect to `https://your-project-name.vercel.app/mcp`
+1. **Home Page**: Visit `https://your-project-name.vercel.app/` to see the interactive documentation and usage guide
+2. **Health Check**: The home page also serves as a health check - if it loads, the server is running
+3. **MCP Connection**: Use an MCP client to connect to `https://your-project-name.vercel.app/mcp`
 
 ## Troubleshooting
 

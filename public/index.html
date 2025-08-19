@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Sheets MCP Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            background: white;
+            border-radius: 12px;
+            padding: 3rem;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .section {
+            margin-bottom: 3rem;
+        }
+
+        .section:last-child {
+            margin-bottom: 0;
+        }
+
+        .section h2 {
+            color: #4a5568;
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+
+        .section h3 {
+            color: #2d3748;
+            font-size: 1.3rem;
+            margin: 1.5rem 0 0.5rem 0;
+        }
+
+        .section p {
+            margin-bottom: 1rem;
+            color: #4a5568;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .feature-card {
+            background: #f7fafc;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .feature-card h4 {
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-card p {
+            color: #718096;
+            font-size: 0.9rem;
+        }
+
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .endpoint {
+            background: #edf2f7;
+            padding: 1rem;
+            border-radius: 6px;
+            margin: 1rem 0;
+            border-left: 4px solid #48bb78;
+        }
+
+        .endpoint strong {
+            color: #2d3748;
+        }
+
+        .business-sectors {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .sector-tag {
+            background: #667eea;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            text-align: center;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .status {
+            text-align: center;
+            background: #48bb78;
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+        }
+
+        .footer {
+            text-align: center;
+            color: white;
+            opacity: 0.8;
+            margin-top: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .main-content {
+                padding: 2rem;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Google Sheets MCP Server</h1>
+            <p>A powerful Model Context Protocol server for managing Google Sheets data across multiple business sectors</p>
+        </div>
+
+        <div class="main-content">
+            <div class="status">
+                ✅ Server is running and ready to accept MCP connections
+            </div>
+
+            <div class="section">
+                <h2>🚀 Welcome</h2>
+                <p>
+                    This Google Sheets MCP Server provides a seamless interface for managing spreadsheet data through the Model Context Protocol. 
+                    It supports comprehensive CRUD operations across multiple business sectors, making it perfect for integrating AI assistants 
+                    with your Google Sheets workflows.
+                </p>
+            </div>
+
+            <div class="section">
+                <h2>✨ Key Features</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <h4>📝 CRUD Operations</h4>
+                        <p>Create, read, update, and delete rows in your Google Sheets with ease</p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>🏢 Multi-Sector Support</h4>
+                        <p>Manage data across invoices, sales, marketing, clients, tasks, projects, and employees</p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>🔍 Advanced Filtering</h4>
+                        <p>Query data with filters, pagination, and column selection</p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>🔐 Secure Authentication</h4>
+                        <p>Uses Google Service Account for secure API access</p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>🌐 CORS Enabled</h4>
+                        <p>Cross-origin resource sharing for web client compatibility</p>
+                    </div>
+                    <div class="feature-card">
+                        <h4>⚡ Real-time Updates</h4>
+                        <p>Immediate synchronization with your Google Sheets</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🔗 Connection Information</h2>
+                <div class="endpoint">
+                    <strong>MCP Endpoint:</strong> <code>/mcp</code>
+                </div>
+                <div class="endpoint">
+                    <strong>Health Check:</strong> <code>/</code> (this page)
+                </div>
+                <p>
+                    To connect your MCP client, use the following URL:
+                </p>
+                <div class="code-block">
+                    https://your-project-name.vercel.app/mcp
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🏢 Supported Business Sectors</h2>
+                <p>The server supports the following business sectors for data management:</p>
+                <div class="business-sectors">
+                    <div class="sector-tag">Invoices</div>
+                    <div class="sector-tag">Sales</div>
+                    <div class="sector-tag">Marketing</div>
+                    <div class="sector-tag">Clients</div>
+                    <div class="sector-tag">Tasks</div>
+                    <div class="sector-tag">Projects</div>
+                    <div class="sector-tag">Employees</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🛠️ Available Operations</h2>
+                <h3>Main Tool: <code>manage-sheet</code></h3>
+                <p>This tool handles all CRUD operations with the following parameters:</p>
+                
+                <h4>Parameters:</h4>
+                <ul style="margin-left: 2rem; margin-bottom: 1rem;">
+                    <li><strong>business_sector_type:</strong> One of the supported sectors above</li>
+                    <li><strong>operation:</strong> "add", "update", "delete", or "read"</li>
+                    <li><strong>newRow:</strong> Object with column-value pairs (for add operations)</li>
+                    <li><strong>rowIndex:</strong> 1-based row index (for update/delete operations)</li>
+                    <li><strong>cellUpdates:</strong> Array of column-value updates (for update operations)</li>
+                    <li><strong>select:</strong> Array of columns to include (for read operations)</li>
+                    <li><strong>filter:</strong> Array of filter conditions (for read operations)</li>
+                    <li><strong>limit:</strong> Maximum number of rows to return (for read operations)</li>
+                    <li><strong>offset:</strong> Number of rows to skip (for read operations)</li>
+                </ul>
+
+                <h4>Example Usage:</h4>
+                <div class="code-block">
+// Read invoices with pagination
+{
+  "business_sector_type": "invoices",
+  "operation": "read",
+  "limit": 10,
+  "offset": 0
+}
+
+// Add a new invoice
+{
+  "business_sector_type": "invoices",
+  "operation": "add",
+  "newRow": {
+    "Invoice Number": "INV-001",
+    "Client": "John Doe",
+    "Amount": "1000.00",
+    "Status": "Pending"
+  }
+}
+
+// Update an invoice
+{
+  "business_sector_type": "invoices",
+  "operation": "update",
+  "rowIndex": 2,
+  "cellUpdates": [
+    {"column": "Status", "value": "Paid"},
+    {"column": "Amount", "value": "1200.00"}
+  ]
+}
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🔧 Setup Requirements</h2>
+                <p>To use this MCP server, you need:</p>
+                <ul style="margin-left: 2rem; margin-bottom: 1rem;">
+                    <li>A Google Cloud service account with Google Sheets API access</li>
+                    <li>Google Sheets configured for each business sector you want to manage</li>
+                    <li>Proper environment variables set (GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY)</li>
+                    <li>Sheet IDs configured for each business sector</li>
+                </ul>
+                <p>
+                    For detailed setup instructions, please refer to the project's README.md file.
+                </p>
+            </div>
+
+            <div class="section">
+                <h2>📚 Getting Started</h2>
+                <ol style="margin-left: 2rem;">
+                    <li>Ensure your Google Sheets are properly configured and shared with your service account</li>
+                    <li>Set up the required environment variables in your deployment platform</li>
+                    <li>Connect your MCP client to the server endpoint</li>
+                    <li>Start managing your Google Sheets data through the MCP interface</li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Google Sheets MCP Server - Powered by Model Context Protocol</p>
+            <p>For support and documentation, check the project repository</p>
+        </div>
+    </div>
+</body>
+</html>
