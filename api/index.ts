@@ -1,17 +1,17 @@
 import express from "express";
-import { randomUUID } from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
-import { executeManageSheetData, ManageSheetParams } from "../src/server.js";
+import {randomUUID} from "node:crypto";
+import {McpServer} from "@modelcontextprotocol/sdk/server/mcp.js";
+import {StreamableHTTPServerTransport} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {isInitializeRequest} from "@modelcontextprotocol/sdk/types.js";
+import {z} from "zod";
+import {
+    executeManageSheetData,
+    ManageSheetParams,
+} from "../src/server.js";
 import cors from "cors";
 
 const app = express();
 app.use(express.json());
-
-// Serve static files from the public directory
-app.use(express.static("public"));
 
 // Add CORS middleware before your MCP routes
 app.use(
@@ -204,7 +204,7 @@ app.delete("/mcp", handleSessionRequest);
 
 // Health check endpoint - serve the home page
 app.get("/", (req, res) => {
-    res.sendFile("public/index.html", { root: process.cwd() });
+    res.sendFile("public/index.html", {root: process.cwd()});
 });
 
 // Export for Vercel serverless
