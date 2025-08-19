@@ -11,10 +11,6 @@
       "src": "/mcp",
       "dest": "/api/index.ts",
       "methods": ["GET", "POST", "DELETE"]
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/api/index.ts"
     }
   ],
   "env": {
