@@ -204,7 +204,7 @@ app.delete("/mcp", handleSessionRequest);
 
 // Health check endpoint - serve the home page
 app.get("/", (req, res) => {
-    res.sendFile("public/index.html", { root: process.cwd() });
+    res.sendFile("public/index.html", {root: process.cwd()});
 });
 
 const PORT = 8123;
