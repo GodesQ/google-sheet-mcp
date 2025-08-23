@@ -17,6 +17,11 @@
       "methods": ["GET", "POST", "DELETE"]
     },
     {
+      "src": "^/debug/sessions$",
+      "dest": "/api/index.ts",
+      "methods": ["GET"]
+    },
+    {
       "src": "^/api/(.*)$",
       "dest": "/api/index.ts"
     },
