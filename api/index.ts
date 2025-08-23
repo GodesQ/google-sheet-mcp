@@ -8,6 +8,7 @@ import {
     executeManageSheetData,
     ManageSheetParams,
 } from "../src/server.js";
+import { sessionManager } from "../src/sessionManager.js";
 import cors from "cors";
 
 const app = express();
@@ -22,29 +23,23 @@ app.use(
     })
 );
 
-// Map to store transports by session ID
+// Map to store transports by session ID (in-memory for current request)
 const transports: {
     [sessionId: string]: StreamableHTTPServerTransport;
 } = {};
 
-// Map to store session creation timestamps for cleanup
-const sessionTimestamps: {
-    [sessionId: string]: number;
-} = {};
+// For Vercel serverless, we need to handle the fact that memory is not shared between invocations
+let isServerlessEnvironment = process.env.VERCEL === '1';
 
 // Cleanup old sessions periodically (older than 30 minutes)
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
 
-setInterval(() => {
-    const now = Date.now();
-    Object.keys(sessionTimestamps).forEach(sessionId => {
-        if (now - sessionTimestamps[sessionId] > SESSION_TIMEOUT) {
-            delete transports[sessionId];
-            delete sessionTimestamps[sessionId];
-            console.log(`Cleaned up expired session: ${sessionId}`);
-        }
-    });
-}, 5 * 60 * 1000); // Check every 5 minutes
+// Only run cleanup if not in serverless environment
+if (!isServerlessEnvironment) {
+    setInterval(async () => {
+        await sessionManager.cleanupExpiredSessions();
+    }, 5 * 60 * 1000); // Check every 5 minutes
+}
 
 // Handle POST requests for client-to-server communication
 app.post("/mcp", async (req, res) => {
@@ -52,21 +47,147 @@ app.post("/mcp", async (req, res) => {
     const sessionId = req.headers["mcp-session-id"] as
         | string
         | undefined;
-    let transport: StreamableHTTPServerTransport;
+    let transport: StreamableHTTPServerTransport | undefined;
 
-    if (sessionId && transports[sessionId]) {
-        // Reuse existing transport
-        transport = transports[sessionId];
-        // Update timestamp to keep session alive
-        sessionTimestamps[sessionId] = Date.now();
-    } else if (!sessionId && isInitializeRequest(req.body)) {
+    if (sessionId) {
+        // Check if session exists in Redis
+        const session = await sessionManager.getSession(sessionId);
+        if (session && transports[sessionId]) {
+            // Reuse existing transport
+            transport = transports[sessionId];
+            console.log(`Reusing existing session: ${sessionId}`);
+        } else if (session) {
+            // Session exists in Redis but transport is missing (cold start)
+            // Create a new transport for this session
+            transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => sessionId,
+                onsessioninitialized: (initializedSessionId) => {
+                    if (transport) {
+                        transports[initializedSessionId] = transport;
+                        console.log(`Recreated transport for existing session: ${initializedSessionId}`);
+                    }
+                },
+                enableDnsRebindingProtection: false,
+            });
+            
+            const server = new McpServer({
+                name: "sheets-mcp-server",
+                version: "1.0.0",
+            });
+            
+            // Register the manage-sheet tool
+            server.registerTool(
+                "manage-sheet",
+                {
+                    title: "Manage Google Sheets",
+                    description:
+                        "Create, read, update, and delete Google Sheets Business Sector like (invoices, tasks, employees, clients, sales, projects).",
+                    inputSchema: {
+                        business_sector_type: z.enum([
+                            "invoices",
+                            "sales",
+                            "marketing",
+                            "clients",
+                            "tasks",
+                            "projects",
+                            "employees",
+                        ]),
+                        operation: z.enum([
+                            "add",
+                            "update",
+                            "delete",
+                            "read",
+                        ]),
+
+                        // add
+                        newRow: z
+                            .record(z.string(), z.string())
+                            .nullable()
+                            .optional()
+                            .describe(
+                                "Column:value pairs for adding a row"
+                            ),
+
+                        // update/delete
+                        rowIndex: z
+                            .number()
+                            .int()
+                            .positive()
+                            .nullable()
+                            .optional()
+                            .describe("1-based row index"),
+
+                        // update
+                        cellUpdates: z
+                            .array(
+                                z.object({
+                                    column: z.string(),
+                                    value: z.string(),
+                                })
+                            )
+                            .nullable()
+                            .optional(),
+
+                        // read
+                        select: z
+                            .array(z.string())
+                            .optional()
+                            .describe("Columns to include"),
+                        filter: z
+                            .array(
+                                z.object({
+                                    column: z.string(),
+                                    op: z
+                                        .enum([
+                                            "eq",
+                                            "neq",
+                                            "contains",
+                                            "startsWith",
+                                            "endsWith",
+                                        ])
+                                        .default("eq"),
+                                    value: z.string(),
+                                })
+                            )
+                            .optional(),
+                        limit: z.number().int().positive().optional(),
+                        offset: z.number().int().nonnegative().optional(),
+                    },
+                },
+                async (args) => {
+                    try {
+                        const result = await executeManageSheetData(
+                            args as ManageSheetParams
+                        );
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: JSON.stringify(result),
+                                },
+                            ],
+                        };
+                    } catch (err) {
+                        throw err;
+                    }
+                }
+            );
+
+            await server.connect(transport);
+        }
+    }
+    
+    if (!transport && !sessionId && isInitializeRequest(req.body)) {
         // New initialization request
         transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
-            onsessioninitialized: (sessionId) => {
+            onsessioninitialized: async (sessionId) => {
                 // Store the transport by session ID
-                transports[sessionId] = transport;
-                sessionTimestamps[sessionId] = Date.now();
+                if (transport) {
+                    transports[sessionId] = transport;
+                }
+                // Create session in Redis
+                await sessionManager.createSession(sessionId);
                 console.log(`Created new session: ${sessionId}`);
             },
             // DNS rebinding protection is disabled by default for backwards compatibility
@@ -74,15 +195,20 @@ app.post("/mcp", async (req, res) => {
         });
 
         // Clean up transport when closed - but don't immediately delete
-        transport.onclose = () => {
-            if (transport.sessionId) {
-                // Only delete if the session has expired
-                const sessionAge = Date.now() - (sessionTimestamps[transport.sessionId] || 0);
-                if (sessionAge > SESSION_TIMEOUT) {
-                    delete transports[transport.sessionId];
-                    delete sessionTimestamps[transport.sessionId];
-                    console.log(`Closed session: ${transport.sessionId}`);
-                }
+        const closedSessionId = transport.sessionId;
+        transport.onclose = async () => {
+            if (closedSessionId) {
+                // Delete session from Redis after timeout
+                setTimeout(async () => {
+                    await sessionManager.deleteSession(closedSessionId);
+                    delete transports[closedSessionId];
+                    // 'transport' may be undefined here, so check before accessing sessionId
+                    if (transport) {
+                        console.log(`Closed session: ${transport.sessionId}`);
+                    } else {
+                        console.log(`Closed session: ${closedSessionId}`);
+                    }
+                }, SESSION_TIMEOUT);
             }
         };
 
@@ -199,12 +325,18 @@ app.post("/mcp", async (req, res) => {
         
         console.log(`Session error: ${errorMessage}`);
         console.log(`Available sessions: ${Object.keys(transports).join(', ')}`);
+        console.log(`Is serverless environment: ${isServerlessEnvironment}`);
+        
+        // For serverless environments, suggest creating a new session
+        if (isServerlessEnvironment && sessionId) {
+            console.log(`Serverless environment detected - session ${sessionId} was lost due to cold start`);
+        }
         
         res.status(400).json({
             jsonrpc: "2.0",
             error: {
                 code: -32000,
-                message: `Bad Request: ${errorMessage}`,
+                message: `Bad Request: ${errorMessage}${isServerlessEnvironment ? ' (Serverless environment - sessions may be lost on cold starts)' : ''}`,
             },
             id: null,
         });
@@ -212,7 +344,18 @@ app.post("/mcp", async (req, res) => {
     }
 
     // Handle the request
-    await transport.handleRequest(req, res, req.body);
+    if (transport) {
+        await transport.handleRequest(req, res, req.body);
+    } else {
+        res.status(400).json({
+            jsonrpc: "2.0",
+            error: {
+                code: -32000,
+                message: "Bad Request: Failed to create or find transport",
+            },
+            id: null,
+        });
+    }
 });
 
 // Reusable handler for GET and DELETE requests
@@ -223,10 +366,19 @@ const handleSessionRequest = async (
     const sessionId = req.headers["mcp-session-id"] as
         | string
         | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        const errorMessage = sessionId 
-            ? `Session ID provided but not found: ${sessionId}` 
-            : "No session ID provided";
+    if (!sessionId) {
+        const errorMessage = "No session ID provided";
+        console.log(`Session request error: ${errorMessage}`);
+        res.status(400).send(`Invalid or missing session ID: ${errorMessage}`);
+        return;
+    }
+
+    // Check if session exists in Redis
+    const session = await sessionManager.getSession(sessionId);
+    if (!session || !transports[sessionId]) {
+        const errorMessage = session 
+            ? `Session exists in Redis but transport not found: ${sessionId}` 
+            : `Session ID provided but not found: ${sessionId}`;
         
         console.log(`Session request error: ${errorMessage}`);
         console.log(`Available sessions: ${Object.keys(transports).join(', ')}`);
@@ -235,9 +387,6 @@ const handleSessionRequest = async (
         return;
     }
 
-    // Update timestamp to keep session alive
-    sessionTimestamps[sessionId] = Date.now();
-    
     const transport = transports[sessionId];
     await transport.handleRequest(req, res);
 };
@@ -254,19 +403,37 @@ app.get("/", (req, res) => {
 });
 
 // Debug endpoint to check session status
-app.get("/debug/sessions", (req, res) => {
-    const sessionInfo = Object.keys(transports).map(sessionId => ({
-        sessionId,
-        createdAt: new Date(sessionTimestamps[sessionId]).toISOString(),
-        age: Date.now() - sessionTimestamps[sessionId],
-        active: true
-    }));
-    
-    res.json({
-        activeSessions: sessionInfo,
-        totalSessions: sessionInfo.length,
-        serverTime: new Date().toISOString()
-    });
+app.get("/debug/sessions", async (req, res) => {
+    try {
+        const redisSessions = await sessionManager.getAllSessions();
+        const sessionInfo = redisSessions.map(session => ({
+            sessionId: session.sessionId,
+            createdAt: new Date(session.createdAt).toISOString(),
+            lastAccessed: new Date(session.lastAccessed).toISOString(),
+            age: Date.now() - session.lastAccessed,
+            active: true,
+            inMemory: transports[session.sessionId] ? true : false
+        }));
+        
+        res.json({
+            activeSessions: sessionInfo,
+            totalSessions: sessionInfo.length,
+            inMemorySessions: Object.keys(transports).length,
+            serverTime: new Date().toISOString(),
+            environment: {
+                isServerless: isServerlessEnvironment,
+                platform: process.env.VERCEL ? 'Vercel' : 'Local',
+                nodeEnv: process.env.NODE_ENV
+            },
+            warning: isServerlessEnvironment ? "Sessions may be lost on cold starts in serverless environment" : null
+        });
+    } catch (error) {
+        console.error('Error in debug endpoint:', error);
+        res.status(500).json({
+            error: 'Failed to get session information',
+            details: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
 });
 
 // Export for Vercel serverless
