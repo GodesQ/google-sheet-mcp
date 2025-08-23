@@ -1,250 +1,162 @@
 # Google Sheets MCP Server
 
-A Model Context Protocol (MCP) server that provides tools for managing Google Sheets data. This server allows you to create, read, update, and delete data in Google Sheets for various business sectors like invoices, tasks, employees, clients, sales, projects, and marketing.
+A Model Context Protocol (MCP) server for managing Google Sheets with business sector data like invoices, tasks, employees, clients, sales, projects, and marketing.
 
 ## Features
 
-- **CRUD Operations**: Add, read, update, and delete rows in Google Sheets
-- **Multiple Business Sectors**: Support for invoices, sales, marketing, clients, tasks, projects, and employees
-- **Filtering & Pagination**: Advanced querying capabilities with filters, limits, and offsets
-- **Session Management**: Maintains MCP sessions for persistent connections
-- **CORS Support**: Cross-origin resource sharing enabled for web clients
+- **Redis Session Management**: Persistent session storage using Upstash Redis
+- **Concurrent Request Support**: Handles multiple consecutive MCP tool calls without session loss
+- **Serverless Ready**: Optimized for Vercel serverless deployment
+- **Business Sector Management**: CRUD operations for various business data types
 
-## Prerequisites
+## Setup
 
-Before deploying, you need:
-
-1. **Google Service Account**: A Google Cloud service account with Google Sheets API access
-2. **Google Sheets**: Pre-configured Google Sheets with the appropriate structure
-3. **Vercel Account**: For deployment (free tier available)
-
-## Environment Variables
-
-You need to set up the following environment variables in Vercel:
-
-### Required Variables
+### 1. Install Dependencies
 
 ```bash
-GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account@project.iam.gserviceaccount.com
-GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYour Private Key Here\n-----END PRIVATE KEY-----"
+npm install
 ```
 
-### Optional Variables (for specific sheet IDs)
+### 2. Environment Variables
+
+Create a `.env` file with the following variables:
+
+```env
+# Google Sheets API
+GOOGLE_SHEETS_PRIVATE_KEY=your_private_key_here
+GOOGLE_SHEETS_CLIENT_EMAIL=your_client_email_here
+GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id_here
+
+# Upstash Redis (Required for session management)
+UPSTASH_REDIS_REST_URL=https://your-redis-url.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_redis_token_here
+```
+
+### 3. Upstash Redis Setup
+
+1. Go to [Upstash Console](https://console.upstash.com/)
+2. Create a new Redis database
+3. Copy the `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` from your database settings
+4. Add them to your `.env` file
+
+### 4. Test Redis Connection
+
+Run the Redis test script to verify your setup:
 
 ```bash
-SHEET_ID_INVOICES=your-invoices-sheet-id
-SHEET_ID_SALES=your-sales-sheet-id
-SHEET_ID_MARKETING=your-marketing-sheet-id
-SHEET_ID_CLIENTS=your-clients-sheet-id
-SHEET_ID_TASKS=your-tasks-sheet-id
-SHEET_ID_PROJECTS=your-projects-sheet-id
-SHEET_ID_EMPLOYEES=your-employees-sheet-id
+node test-redis.js
 ```
 
-## Deployment Steps
-
-### 1. Prepare Your Google Service Account
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the Google Sheets API
-4. Create a Service Account:
-   - Go to "IAM & Admin" > "Service Accounts"
-   - Click "Create Service Account"
-   - Give it a name and description
-   - Grant "Editor" role
-5. Create and download a JSON key file
-6. Extract the `client_email` and `private_key` from the JSON file
-
-### 2. Set Up Google Sheets
-
-1. Create Google Sheets for each business sector you want to manage
-2. Share each sheet with your service account email (with Editor permissions)
-3. Note down the Sheet IDs from the URLs (the long string between `/d/` and `/edit`)
-
-### 3. Deploy to Vercel
-
-#### Option A: Using Vercel CLI
-
-1. Install Vercel CLI:
-   ```bash
-   npm i -g vercel
-   ```
-
-2. Login to Vercel:
-   ```bash
-   vercel login
-   ```
-
-3. Deploy the project:
-   ```bash
-   vercel
-   ```
-
-4. Set environment variables:
-   ```bash
-   vercel env add GOOGLE_SERVICE_ACCOUNT_EMAIL
-   vercel env add GOOGLE_PRIVATE_KEY
-   ```
-
-#### Option B: Using Vercel Dashboard
-
-1. Push your code to GitHub/GitLab/Bitbucket
-2. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-3. Click "New Project"
-4. Import your repository
-5. Configure environment variables in the project settings
-6. Deploy
-
-### 4. Configure Environment Variables in Vercel
-
-1. Go to your Vercel project dashboard
-2. Navigate to "Settings" > "Environment Variables"
-3. Add the following variables:
-
-   **GOOGLE_SERVICE_ACCOUNT_EMAIL**
-   - Value: Your service account email
-   - Environment: Production, Preview, Development
-
-   **GOOGLE_PRIVATE_KEY**
-   - Value: Your private key (include the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` parts)
-   - Environment: Production, Preview, Development
-
-4. Redeploy your application
-
-## MCP Server URL Structure
-
-Once deployed, your MCP server will be available at:
-
-### Base URL
+You should see output like:
 ```
-https://your-project-name.vercel.app
+Testing Redis connection...
+🔍 Testing basic connection...
+✅ Ping result: PONG
+🔍 Testing session operations...
+📝 Storing session...
+✅ Session stored
+📖 Retrieving session...
+✅ Session retrieved: { sessionId: 'test-session-1234567890', createdAt: 1234567890, lastAccessed: 1234567890 }
+🔍 Checking if session exists...
+✅ Session exists: true
+🔄 Updating session...
+✅ Session updated
+📋 Getting all session keys...
+✅ Found session keys: ['mcp_session:test-session-1234567890']
+🧹 Cleaning up test session...
+✅ Test session deleted
+
+🎉 All Redis tests passed!
 ```
 
-### MCP Endpoints
+## Development
 
-- **Main MCP Endpoint**: `https://your-project-name.vercel.app/mcp`
-- **Home Page**: `https://your-project-name.vercel.app/` - Interactive documentation and usage guide
-- **Health Check**: `https://your-project-name.vercel.app/` (same as home page)
+### Local Development
 
-### Using with MCP Clients
-
-When configuring your MCP client, use the following URL:
-
-```
-https://your-project-name.vercel.app/mcp
+```bash
+npm run dev
 ```
 
-## Available Tools
+### Build for Production
 
-The server provides one main tool: `manage-sheet`
-
-### Tool Parameters
-
-- **business_sector_type**: `"invoices" | "sales" | "marketing" | "clients" | "tasks" | "projects" | "employees"`
-- **operation**: `"add" | "update" | "delete" | "read"`
-
-### Example Operations
-
-#### Read Data
-```json
-{
-  "business_sector_type": "invoices",
-  "operation": "read",
-  "limit": 10,
-  "offset": 0
-}
+```bash
+npm run build
 ```
 
-#### Add Row
-```json
-{
-  "business_sector_type": "invoices",
-  "operation": "add",
-  "newRow": {
-    "Invoice Number": "INV-001",
-    "Client": "John Doe",
-    "Amount": "1000.00",
-    "Status": "Pending"
-  }
-}
-```
+## API Endpoints
 
-#### Update Row
-```json
-{
-  "business_sector_type": "invoices",
-  "operation": "update",
-  "rowIndex": 2,
-  "cellUpdates": [
-    {"column": "Status", "value": "Paid"},
-    {"column": "Amount", "value": "1200.00"}
-  ]
-}
-```
+### MCP Endpoint
+- `POST /mcp` - Main MCP communication endpoint
+- `GET /mcp` - Server-sent events for notifications
+- `DELETE /mcp` - Session termination
 
-#### Delete Row
-```json
-{
-  "business_sector_type": "invoices",
-  "operation": "delete",
-  "rowIndex": 3
-}
-```
+### Debug Endpoints
+- `GET /debug/sessions` - View all active sessions
+- `GET /debug/redis` - Test Redis connection status
 
-## Testing the Deployment
+## Session Management
 
-1. **Home Page**: Visit `https://your-project-name.vercel.app/` to see the interactive documentation and usage guide
-2. **Health Check**: The home page also serves as a health check - if it loads, the server is running
-3. **MCP Connection**: Use an MCP client to connect to `https://your-project-name.vercel.app/mcp`
+The server now uses Upstash Redis for persistent session storage, which solves the consecutive MCP tool calls issue. Sessions are:
+
+- **Stored in Redis** with 30-minute expiration
+- **Automatically refreshed** on each access
+- **Recreated** when transport is lost (e.g., in serverless environments)
+- **Cleaned up** automatically by Redis expiration
+
+### Session Flow
+
+1. **Initial Request**: Creates new session in Redis
+2. **Consecutive Requests**: 
+   - Checks if session exists in Redis
+   - Recreates transport if needed
+   - Updates session access time
+3. **Session Cleanup**: Automatic expiration after 30 minutes of inactivity
 
 ## Troubleshooting
 
-### Common Issues
+### "Server not initialized" Error
 
-1. **Environment Variables Not Set**: Ensure all required environment variables are configured in Vercel
-2. **Google Sheets Permissions**: Make sure your service account has access to the Google Sheets
-3. **Private Key Format**: Ensure the private key includes the full PEM format with headers
-4. **CORS Issues**: The server is configured to allow all origins (`*`) - adjust if needed for production
+This error occurs when consecutive MCP calls lose session context. The Redis implementation fixes this by:
 
-### Debugging
+1. **Persistent Storage**: Sessions are stored in Redis, not just in memory
+2. **Session Recovery**: Missing transports are recreated from Redis session data
+3. **Access Tracking**: Session access times are updated on each request
 
-- Check Vercel function logs in the dashboard
-- Verify environment variables are correctly set
-- Test Google Sheets API access locally first
+### Redis Connection Issues
 
-## Local Development
+If Redis is not configured:
+- The server falls back to in-memory storage
+- Sessions will be lost on server restarts
+- Consecutive calls may still fail
 
-To run the server locally:
+Check your Redis connection:
+```bash
+curl http://localhost:3000/debug/redis
+```
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+### Environment Variables
 
-2. Create a `.env` file with your environment variables
+Ensure all required environment variables are set:
+```bash
+echo $UPSTASH_REDIS_REST_URL
+echo $UPSTASH_REDIS_REST_TOKEN
+```
 
-3. Build and run:
-   ```bash
-   npm run dev
-   ```
+## Deployment
 
-4. The server will be available at `http://localhost:8123`
+### Vercel
 
-## Security Considerations
+The server is optimized for Vercel serverless deployment. Sessions persist across cold starts thanks to Redis storage.
 
-- **CORS**: Currently set to allow all origins - consider restricting for production
-- **Authentication**: The server uses Google Service Account authentication
-- **Rate Limiting**: Consider implementing rate limiting for production use
-- **Environment Variables**: Never commit sensitive credentials to version control
+### Environment Variables in Production
 
-## Support
-
-For issues and questions:
-1. Check the Vercel function logs
-2. Verify Google Sheets API setup
-3. Test with a simple MCP client first
+Set the following environment variables in your Vercel project:
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+- `GOOGLE_SHEETS_PRIVATE_KEY`
+- `GOOGLE_SHEETS_CLIENT_EMAIL`
+- `GOOGLE_SHEETS_SPREADSHEET_ID`
 
 ## License
 
-ISC License
+ISC

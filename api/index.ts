@@ -41,6 +41,114 @@ if (!isServerlessEnvironment) {
     }, 5 * 60 * 1000); // Check every 5 minutes
 }
 
+// Helper function to create MCP server with tool registration
+const createMcpServer = () => {
+    const server = new McpServer({
+        name: "sheets-mcp-server",
+        version: "1.0.0",
+    });
+
+    // Register the manage-sheet tool
+    server.registerTool(
+        "manage-sheet",
+        {
+            title: "Manage Google Sheets",
+            description:
+                "Create, read, update, and delete Google Sheets Business Sector like (invoices, tasks, employees, clients, sales, projects).",
+            inputSchema: {
+                business_sector_type: z.enum([
+                    "invoices",
+                    "sales",
+                    "marketing",
+                    "clients",
+                    "tasks",
+                    "projects",
+                    "employees",
+                ]),
+                operation: z.enum([
+                    "add",
+                    "update",
+                    "delete",
+                    "read",
+                ]),
+
+                // add
+                newRow: z
+                    .record(z.string(), z.string())
+                    .nullable()
+                    .optional()
+                    .describe(
+                        "Column:value pairs for adding a row"
+                    ),
+
+                // update/delete
+                rowIndex: z
+                    .number()
+                    .int()
+                    .positive()
+                    .nullable()
+                    .optional()
+                    .describe("1-based row index"),
+
+                // update
+                cellUpdates: z
+                    .array(
+                        z.object({
+                            column: z.string(),
+                            value: z.string(),
+                        })
+                    )
+                    .nullable()
+                    .optional(),
+
+                // read
+                select: z
+                    .array(z.string())
+                    .optional()
+                    .describe("Columns to include"),
+                filter: z
+                    .array(
+                        z.object({
+                            column: z.string(),
+                            op: z
+                                .enum([
+                                    "eq",
+                                    "neq",
+                                    "contains",
+                                    "startsWith",
+                                    "endsWith",
+                                ])
+                                .default("eq"),
+                            value: z.string(),
+                        })
+                    )
+                    .optional(),
+                limit: z.number().int().positive().optional(),
+                offset: z.number().int().nonnegative().optional(),
+            },
+        },
+        async (args) => {
+            try {
+                const result = await executeManageSheetData(
+                    args as ManageSheetParams
+                );
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(result),
+                        },
+                    ],
+                };
+            } catch (err) {
+                throw err;
+            }
+        }
+    );
+
+    return server;
+};
+
 // Handle POST requests for client-to-server communication
 app.post("/mcp", async (req, res) => {
     // Check for existing session ID
@@ -49,297 +157,142 @@ app.post("/mcp", async (req, res) => {
         | undefined;
     let transport: StreamableHTTPServerTransport | undefined;
 
-    // For serverless environments, we'll create a new session if needed
-    if (sessionId && transports[sessionId]) {
-        // Reuse existing transport if available in current request
-        transport = transports[sessionId];
-        console.log(`Reusing existing session: ${sessionId}`);
-    } else if (!sessionId && isInitializeRequest(req.body)) {
-        // New initialization request
-        transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => randomUUID(),
-            onsessioninitialized: async (sessionId) => {
-                // Store the transport by session ID
-                if (transport) {
-                    transports[sessionId] = transport;
-                }
-                // Create session in memory
-                await sessionManager.createSession(sessionId);
-                console.log(`Created new session: ${sessionId}`);
-            },
-            // DNS rebinding protection is disabled by default for backwards compatibility
-            enableDnsRebindingProtection: false,
-        });
-
-        // Clean up transport when closed
-        const currentTransport = transport;
-        currentTransport.onclose = async () => {
-            if (currentTransport?.sessionId) {
-                // Delete session after timeout
-                setTimeout(async () => {
-                    await sessionManager.deleteSession(currentTransport.sessionId!);
-                    delete transports[currentTransport.sessionId!];
-                    console.log(`Closed session: ${currentTransport.sessionId}`);
-                }, SESSION_TIMEOUT);
-            }
-        };
-
-        const server = new McpServer({
-            name: "sheets-mcp-server",
-            version: "1.0.0",
-        });
-
-        // Register the manage-sheet tool
-        server.registerTool(
-            "manage-sheet",
-            {
-                title: "Manage Google Sheets",
-                description:
-                    "Create, read, update, and delete Google Sheets Business Sector like (invoices, tasks, employees, clients, sales, projects).",
-                inputSchema: {
-                    business_sector_type: z.enum([
-                        "invoices",
-                        "sales",
-                        "marketing",
-                        "clients",
-                        "tasks",
-                        "projects",
-                        "employees",
-                    ]),
-                    operation: z.enum([
-                        "add",
-                        "update",
-                        "delete",
-                        "read",
-                    ]),
-
-                    // add
-                    newRow: z
-                        .record(z.string(), z.string())
-                        .nullable()
-                        .optional()
-                        .describe(
-                            "Column:value pairs for adding a row"
-                        ),
-
-                    // update/delete
-                    rowIndex: z
-                        .number()
-                        .int()
-                        .positive()
-                        .nullable()
-                        .optional()
-                        .describe("1-based row index"),
-
-                    // update
-                    cellUpdates: z
-                        .array(
-                            z.object({
-                                column: z.string(),
-                                value: z.string(),
-                            })
-                        )
-                        .nullable()
-                        .optional(),
-
-                    // read
-                    select: z
-                        .array(z.string())
-                        .optional()
-                        .describe("Columns to include"),
-                    filter: z
-                        .array(
-                            z.object({
-                                column: z.string(),
-                                op: z
-                                    .enum([
-                                        "eq",
-                                        "neq",
-                                        "contains",
-                                        "startsWith",
-                                        "endsWith",
-                                    ])
-                                    .default("eq"),
-                                value: z.string(),
-                            })
-                        )
-                        .optional(),
-                    limit: z.number().int().positive().optional(),
-                    offset: z.number().int().nonnegative().optional(),
+    try {
+        // For serverless environments, we'll create a new session if needed
+        if (sessionId && transports[sessionId]) {
+            // Reuse existing transport if available in current request
+            transport = transports[sessionId];
+            console.log(`Reusing existing transport for session: ${sessionId}`);
+        } else if (sessionId && await sessionManager.sessionExists(sessionId)) {
+            // Session exists in Redis but transport not in memory - recreate transport
+            console.log(`Session exists in Redis, recreating transport: ${sessionId}`);
+            
+            transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => sessionId,
+                onsessioninitialized: async (initializedSessionId) => {
+                    if (transport) {
+                        transports[initializedSessionId] = transport;
+                    }
+                    // Update session access time
+                    await sessionManager.updateSession(initializedSessionId);
+                    console.log(`Recreated transport for existing session: ${initializedSessionId}`);
                 },
-            },
-            async (args) => {
-                try {
-                    const result = await executeManageSheetData(
-                        args as ManageSheetParams
-                    );
-                    return {
-                        content: [
-                            {
-                                type: "text",
-                                text: JSON.stringify(result),
-                            },
-                        ],
-                    };
-                } catch (err) {
-                    throw err;
+                enableDnsRebindingProtection: false,
+            });
+
+            // Clean up transport when closed
+            const currentTransport = transport;
+            currentTransport.onclose = async () => {
+                if (currentTransport?.sessionId) {
+                    delete transports[currentTransport.sessionId];
+                    console.log(`Closed transport for session: ${currentTransport.sessionId}`);
                 }
-            }
-        );
+            };
 
-        // Connect to the MCP server
-        await server.connect(transport);
-    } else if (sessionId && isServerlessEnvironment) {
-        // In serverless environment, if session ID is provided but not found,
-        // create a new session with the same ID to maintain continuity
-        console.log(`Serverless environment: Creating new session with provided ID: ${sessionId}`);
-        
-        transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => sessionId,
-            onsessioninitialized: async (initializedSessionId) => {
-                if (transport) {
-                    transports[initializedSessionId] = transport;
-                }
-                await sessionManager.createSession(initializedSessionId);
-                console.log(`Recreated session in serverless environment: ${initializedSessionId}`);
-            },
-            enableDnsRebindingProtection: false,
-        });
-
-        const server = new McpServer({
-            name: "sheets-mcp-server",
-            version: "1.0.0",
-        });
-
-        // Register the manage-sheet tool
-        server.registerTool(
-            "manage-sheet",
-            {
-                title: "Manage Google Sheets",
-                description:
-                    "Create, read, update, and delete Google Sheets Business Sector like (invoices, tasks, employees, clients, sales, projects).",
-                inputSchema: {
-                    business_sector_type: z.enum([
-                        "invoices",
-                        "sales",
-                        "marketing",
-                        "clients",
-                        "tasks",
-                        "projects",
-                        "employees",
-                    ]),
-                    operation: z.enum([
-                        "add",
-                        "update",
-                        "delete",
-                        "read",
-                    ]),
-
-                    // add
-                    newRow: z
-                        .record(z.string(), z.string())
-                        .nullable()
-                        .optional()
-                        .describe(
-                            "Column:value pairs for adding a row"
-                        ),
-
-                    // update/delete
-                    rowIndex: z
-                        .number()
-                        .int()
-                        .positive()
-                        .nullable()
-                        .optional()
-                        .describe("1-based row index"),
-
-                    // update
-                    cellUpdates: z
-                        .array(
-                            z.object({
-                                column: z.string(),
-                                value: z.string(),
-                            })
-                        )
-                        .nullable()
-                        .optional(),
-
-                    // read
-                    select: z
-                        .array(z.string())
-                        .optional()
-                        .describe("Columns to include"),
-                    filter: z
-                        .array(
-                            z.object({
-                                column: z.string(),
-                                op: z
-                                    .enum([
-                                        "eq",
-                                        "neq",
-                                        "contains",
-                                        "startsWith",
-                                        "endsWith",
-                                    ])
-                                    .default("eq"),
-                                value: z.string(),
-                            })
-                        )
-                        .optional(),
-                    limit: z.number().int().positive().optional(),
-                    offset: z.number().int().nonnegative().optional(),
+            const server = createMcpServer();
+            await server.connect(transport);
+        } else if (!sessionId && isInitializeRequest(req.body)) {
+            // New initialization request
+            const newSessionId = randomUUID();
+            transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => newSessionId,
+                onsessioninitialized: async (initializedSessionId) => {
+                    // Store the transport by session ID
+                    if (transport) {
+                        transports[initializedSessionId] = transport;
+                    }
+                    // Create session in Redis
+                    await sessionManager.createSession(initializedSessionId);
+                    console.log(`Created new session: ${initializedSessionId}`);
                 },
-            },
-            async (args) => {
-                try {
-                    const result = await executeManageSheetData(
-                        args as ManageSheetParams
-                    );
-                    return {
-                        content: [
-                            {
-                                type: "text",
-                                text: JSON.stringify(result),
-                            },
-                        ],
-                    };
-                } catch (err) {
-                    throw err;
-                }
-            }
-        );
+                // DNS rebinding protection is disabled by default for backwards compatibility
+                enableDnsRebindingProtection: false,
+            });
 
-        await server.connect(transport);
-    } else {
-        // Invalid request - provide more detailed error information
-        const errorMessage = sessionId 
-            ? `Session ID provided but not found: ${sessionId}` 
-            : "No session ID provided and not an initialization request";
-        
-        console.log(`Session error: ${errorMessage}`);
-        console.log(`Available sessions: ${Object.keys(transports).join(', ')}`);
-        console.log(`Is serverless environment: ${isServerlessEnvironment}`);
-        
-        res.status(400).json({
+            // Clean up transport when closed
+            const currentTransport = transport;
+            currentTransport.onclose = async () => {
+                if (currentTransport?.sessionId) {
+                    // Delete session after timeout
+                    setTimeout(async () => {
+                        await sessionManager.deleteSession(currentTransport.sessionId!);
+                        delete transports[currentTransport.sessionId!];
+                        console.log(`Closed session: ${currentTransport.sessionId}`);
+                    }, SESSION_TIMEOUT);
+                }
+            };
+
+            const server = createMcpServer();
+            await server.connect(transport);
+        } else if (sessionId && isServerlessEnvironment) {
+            // In serverless environment, if session ID is provided but not found in Redis,
+            // create a new session with the same ID to maintain continuity
+            console.log(`Serverless environment: Creating new session with provided ID: ${sessionId}`);
+            
+            transport = new StreamableHTTPServerTransport({
+                sessionIdGenerator: () => sessionId,
+                onsessioninitialized: async (initializedSessionId) => {
+                    if (transport) {
+                        transports[initializedSessionId] = transport;
+                    }
+                    await sessionManager.createSession(initializedSessionId);
+                    console.log(`Recreated session in serverless environment: ${initializedSessionId}`);
+                },
+                enableDnsRebindingProtection: false,
+            });
+
+            // Clean up transport when closed
+            const currentTransport = transport;
+            currentTransport.onclose = async () => {
+                if (currentTransport?.sessionId) {
+                    delete transports[currentTransport.sessionId];
+                    console.log(`Closed transport in serverless environment: ${currentTransport.sessionId}`);
+                }
+            };
+
+            const server = createMcpServer();
+            await server.connect(transport);
+        } else {
+            // Invalid request - provide more detailed error information
+            const errorMessage = sessionId 
+                ? `Session ID provided but not found: ${sessionId}` 
+                : "No session ID provided and not an initialization request";
+            
+            console.log(`Session error: ${errorMessage}`);
+            console.log(`Available in-memory sessions: ${Object.keys(transports).join(', ')}`);
+            console.log(`Is serverless environment: ${isServerlessEnvironment}`);
+            
+            res.status(400).json({
+                jsonrpc: "2.0",
+                error: {
+                    code: -32000,
+                    message: `Bad Request: ${errorMessage}${isServerlessEnvironment ? ' (Serverless environment - sessions may be lost on cold starts)' : ''}`,
+                },
+                id: null,
+            });
+            return;
+        }
+
+        // Handle the request
+        if (transport) {
+            await transport.handleRequest(req, res, req.body);
+        } else {
+            res.status(400).json({
+                jsonrpc: "2.0",
+                error: {
+                    code: -32000,
+                    message: "Bad Request: Failed to create or find transport",
+                },
+                id: null,
+            });
+        }
+    } catch (error) {
+        console.error('Error handling MCP request:', error);
+        res.status(500).json({
             jsonrpc: "2.0",
             error: {
-                code: -32000,
-                message: `Bad Request: ${errorMessage}${isServerlessEnvironment ? ' (Serverless environment - sessions may be lost on cold starts)' : ''}`,
-            },
-            id: null,
-        });
-        return;
-    }
-
-    // Handle the request
-    if (transport) {
-        await transport.handleRequest(req, res, req.body);
-    } else {
-        res.status(400).json({
-            jsonrpc: "2.0",
-            error: {
-                code: -32000,
-                message: "Bad Request: Failed to create or find transport",
+                code: -32603,
+                message: "Internal error: " + (error instanceof Error ? error.message : 'Unknown error'),
             },
             id: null,
         });
@@ -363,11 +316,32 @@ const handleSessionRequest = async (
 
     // Check if transport exists in current request
     if (!transports[sessionId]) {
-        const errorMessage = `Session ID provided but transport not found: ${sessionId}`;
-        console.log(`Session request error: ${errorMessage}`);
-        console.log(`Available sessions: ${Object.keys(transports).join(', ')}`);
+        // Check if session exists in Redis
+        const sessionExists = await sessionManager.sessionExists(sessionId);
+        if (!sessionExists) {
+            const errorMessage = `Session ID provided but not found: ${sessionId}`;
+            console.log(`Session request error: ${errorMessage}`);
+            res.status(400).send(`Invalid or missing session ID: ${errorMessage}`);
+            return;
+        }
         
-        res.status(400).send(`Invalid or missing session ID: ${errorMessage}`);
+        // Session exists in Redis but transport not in memory - recreate transport
+        console.log(`Recreating transport for session: ${sessionId}`);
+        
+        const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => sessionId,
+            onsessioninitialized: async (initializedSessionId) => {
+                transports[initializedSessionId] = transport;
+                await sessionManager.updateSession(initializedSessionId);
+                console.log(`Recreated transport for session: ${initializedSessionId}`);
+            },
+            enableDnsRebindingProtection: false,
+        });
+
+        const server = createMcpServer();
+        await server.connect(transport);
+        
+        await transport.handleRequest(req, res);
         return;
     }
 
@@ -416,6 +390,28 @@ app.get("/debug/sessions", async (req, res) => {
         console.error('Error in debug endpoint:', error);
         res.status(500).json({
             error: 'Failed to get session information',
+            details: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
+// Redis connection test endpoint
+app.get("/debug/redis", async (req, res) => {
+    try {
+        const isConnected = await sessionManager.testRedisConnection();
+        res.json({
+            redisConnected: isConnected,
+            storageType: sessionManager.getStorageType(),
+            environment: {
+                hasRedisUrl: !!process.env.UPSTASH_REDIS_REST_URL,
+                hasRedisToken: !!process.env.UPSTASH_REDIS_REST_TOKEN,
+                isServerless: isServerlessEnvironment
+            }
+        });
+    } catch (error) {
+        console.error('Error testing Redis connection:', error);
+        res.status(500).json({
+            error: 'Failed to test Redis connection',
             details: error instanceof Error ? error.message : 'Unknown error'
         });
     }
