@@ -423,7 +423,8 @@ app.get("/debug/sessions", async (req, res) => {
             environment: {
                 isServerless: isServerlessEnvironment,
                 platform: process.env.VERCEL ? 'Vercel' : 'Local',
-                nodeEnv: process.env.NODE_ENV
+                nodeEnv: process.env.NODE_ENV,
+                storageType: sessionManager.getStorageType()
             },
             warning: isServerlessEnvironment ? "Sessions may be lost on cold starts in serverless environment" : null
         });

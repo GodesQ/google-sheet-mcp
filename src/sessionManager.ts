@@ -1,11 +1,3 @@
-import { Redis } from '@upstash/redis';
-
-// Initialize Redis client
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL || '',
-  token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
-});
-
 export interface SessionData {
   sessionId: string;
   createdAt: number;
@@ -16,8 +8,11 @@ export interface SessionData {
 export class SessionManager {
   private static instance: SessionManager;
   private readonly SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+  private inMemorySessions: Map<string, SessionData> = new Map();
 
-  private constructor() {}
+  private constructor() {
+    console.log('SessionManager initialized with in-memory storage');
+  }
 
   static getInstance(): SessionManager {
     if (!SessionManager.instance) {
@@ -33,18 +28,17 @@ export class SessionManager {
       lastAccessed: Date.now(),
     };
 
-    await redis.setex(`session:${sessionId}`, this.SESSION_TIMEOUT / 1000, JSON.stringify(sessionData));
-    console.log(`Created session in Redis: ${sessionId}`);
+    this.inMemorySessions.set(sessionId, sessionData);
+    console.log(`Created session in memory: ${sessionId}`);
   }
 
   async getSession(sessionId: string): Promise<SessionData | null> {
     try {
-      const sessionData = await redis.get(`session:${sessionId}`);
-      if (sessionData) {
-        const session = JSON.parse(sessionData as string) as SessionData;
+      const session = this.inMemorySessions.get(sessionId);
+      if (session) {
         // Update last accessed time
         session.lastAccessed = Date.now();
-        await redis.setex(`session:${sessionId}`, this.SESSION_TIMEOUT / 1000, JSON.stringify(session));
+        this.inMemorySessions.set(sessionId, session);
         return session;
       }
       return null;
@@ -59,7 +53,7 @@ export class SessionManager {
       const session = await this.getSession(sessionId);
       if (session) {
         session.lastAccessed = Date.now();
-        await redis.setex(`session:${sessionId}`, this.SESSION_TIMEOUT / 1000, JSON.stringify(session));
+        this.inMemorySessions.set(sessionId, session);
       }
     } catch (error) {
       console.error(`Error updating session ${sessionId}:`, error);
@@ -68,8 +62,8 @@ export class SessionManager {
 
   async deleteSession(sessionId: string): Promise<void> {
     try {
-      await redis.del(`session:${sessionId}`);
-      console.log(`Deleted session from Redis: ${sessionId}`);
+      this.inMemorySessions.delete(sessionId);
+      console.log(`Deleted session from memory: ${sessionId}`);
     } catch (error) {
       console.error(`Error deleting session ${sessionId}:`, error);
     }
@@ -77,17 +71,7 @@ export class SessionManager {
 
   async getAllSessions(): Promise<SessionData[]> {
     try {
-      const keys = await redis.keys('session:*');
-      const sessions: SessionData[] = [];
-      
-      for (const key of keys) {
-        const sessionData = await redis.get(key);
-        if (sessionData) {
-          sessions.push(JSON.parse(sessionData as string));
-        }
-      }
-      
-      return sessions;
+      return Array.from(this.inMemorySessions.values());
     } catch (error) {
       console.error('Error getting all sessions:', error);
       return [];
@@ -108,6 +92,10 @@ export class SessionManager {
       console.error('Error cleaning up expired sessions:', error);
     }
   }
+
+  getStorageType(): string {
+    return 'In-Memory';
+  }
 }
 
-export const sessionManager = SessionManager.getInstance();
+export const sessionManager = SessionManager.getInstance(); 
