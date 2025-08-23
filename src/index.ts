@@ -27,6 +27,25 @@ const transports: {
     [sessionId: string]: StreamableHTTPServerTransport;
 } = {};
 
+// Map to store session creation timestamps for cleanup
+const sessionTimestamps: {
+    [sessionId: string]: number;
+} = {};
+
+// Cleanup old sessions periodically (older than 30 minutes)
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+setInterval(() => {
+    const now = Date.now();
+    Object.keys(sessionTimestamps).forEach(sessionId => {
+        if (now - sessionTimestamps[sessionId] > SESSION_TIMEOUT) {
+            delete transports[sessionId];
+            delete sessionTimestamps[sessionId];
+            console.log(`Cleaned up expired session: ${sessionId}`);
+        }
+    });
+}, 5 * 60 * 1000); // Check every 5 minutes
+
 // Handle POST requests for client-to-server communication
 app.post("/mcp", async (req, res) => {
     // Check for existing session ID
@@ -38,6 +57,8 @@ app.post("/mcp", async (req, res) => {
     if (sessionId && transports[sessionId]) {
         // Reuse existing transport
         transport = transports[sessionId];
+        // Update timestamp to keep session alive
+        sessionTimestamps[sessionId] = Date.now();
     } else if (!sessionId && isInitializeRequest(req.body)) {
         // New initialization request
         transport = new StreamableHTTPServerTransport({
@@ -45,16 +66,24 @@ app.post("/mcp", async (req, res) => {
             onsessioninitialized: (sessionId) => {
                 // Store the transport by session ID
                 transports[sessionId] = transport;
+                sessionTimestamps[sessionId] = Date.now();
+                console.log(`Created new session: ${sessionId}`);
             },
             // DNS rebinding protection is disabled by default for backwards compatibility. If you are running this server
             // locally, make sure to set:
             enableDnsRebindingProtection: false,
         });
 
-        // Clean up transport when closed
+        // Clean up transport when closed - but don't immediately delete
         transport.onclose = () => {
             if (transport.sessionId) {
-                delete transports[transport.sessionId];
+                // Only delete if the session has expired
+                const sessionAge = Date.now() - (sessionTimestamps[transport.sessionId] || 0);
+                if (sessionAge > SESSION_TIMEOUT) {
+                    delete transports[transport.sessionId];
+                    delete sessionTimestamps[transport.sessionId];
+                    console.log(`Closed session: ${transport.sessionId}`);
+                }
             }
         };
         const server = new McpServer({
@@ -163,12 +192,19 @@ app.post("/mcp", async (req, res) => {
         // Connect to the MCP server
         await server.connect(transport);
     } else {
-        // Invalid request
+        // Invalid request - provide more detailed error information
+        const errorMessage = sessionId 
+            ? `Session ID provided but not found: ${sessionId}` 
+            : "No session ID provided and not an initialization request";
+        
+        console.log(`Session error: ${errorMessage}`);
+        console.log(`Available sessions: ${Object.keys(transports).join(', ')}`);
+        
         res.status(400).json({
             jsonrpc: "2.0",
             error: {
                 code: -32000,
-                message: "Bad Request: No valid session ID provided",
+                message: `Bad Request: ${errorMessage}`,
             },
             id: null,
         });
@@ -188,10 +224,20 @@ const handleSessionRequest = async (
         | string
         | undefined;
     if (!sessionId || !transports[sessionId]) {
-        res.status(400).send("Invalid or missing session ID");
+        const errorMessage = sessionId 
+            ? `Session ID provided but not found: ${sessionId}` 
+            : "No session ID provided";
+        
+        console.log(`Session request error: ${errorMessage}`);
+        console.log(`Available sessions: ${Object.keys(transports).join(', ')}`);
+        
+        res.status(400).send(`Invalid or missing session ID: ${errorMessage}`);
         return;
     }
 
+    // Update timestamp to keep session alive
+    sessionTimestamps[sessionId] = Date.now();
+    
     const transport = transports[sessionId];
     await transport.handleRequest(req, res);
 };
@@ -205,6 +251,22 @@ app.delete("/mcp", handleSessionRequest);
 // Health check endpoint - serve the home page
 app.get("/", (req, res) => {
     res.sendFile("public/index.html", {root: process.cwd()});
+});
+
+// Debug endpoint to check session status
+app.get("/debug/sessions", (req, res) => {
+    const sessionInfo = Object.keys(transports).map(sessionId => ({
+        sessionId,
+        createdAt: new Date(sessionTimestamps[sessionId]).toISOString(),
+        age: Date.now() - sessionTimestamps[sessionId],
+        active: true
+    }));
+    
+    res.json({
+        activeSessions: sessionInfo,
+        totalSessions: sessionInfo.length,
+        serverTime: new Date().toISOString()
+    });
 });
 
 const PORT = 8123;
