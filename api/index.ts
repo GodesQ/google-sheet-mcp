@@ -49,135 +49,12 @@ app.post("/mcp", async (req, res) => {
         | undefined;
     let transport: StreamableHTTPServerTransport | undefined;
 
-    if (sessionId) {
-        // Check if session exists in Redis
-        const session = await sessionManager.getSession(sessionId);
-        if (session && transports[sessionId]) {
-            // Reuse existing transport
-            transport = transports[sessionId];
-            console.log(`Reusing existing session: ${sessionId}`);
-        } else if (session) {
-            // Session exists in Redis but transport is missing (cold start)
-            // Create a new transport for this session
-            transport = new StreamableHTTPServerTransport({
-                sessionIdGenerator: () => sessionId,
-                onsessioninitialized: (initializedSessionId) => {
-                    if (transport) {
-                        transports[initializedSessionId] = transport;
-                        console.log(`Recreated transport for existing session: ${initializedSessionId}`);
-                    }
-                },
-                enableDnsRebindingProtection: false,
-            });
-            
-            const server = new McpServer({
-                name: "sheets-mcp-server",
-                version: "1.0.0",
-            });
-            
-            // Register the manage-sheet tool
-            server.registerTool(
-                "manage-sheet",
-                {
-                    title: "Manage Google Sheets",
-                    description:
-                        "Create, read, update, and delete Google Sheets Business Sector like (invoices, tasks, employees, clients, sales, projects).",
-                    inputSchema: {
-                        business_sector_type: z.enum([
-                            "invoices",
-                            "sales",
-                            "marketing",
-                            "clients",
-                            "tasks",
-                            "projects",
-                            "employees",
-                        ]),
-                        operation: z.enum([
-                            "add",
-                            "update",
-                            "delete",
-                            "read",
-                        ]),
-
-                        // add
-                        newRow: z
-                            .record(z.string(), z.string())
-                            .nullable()
-                            .optional()
-                            .describe(
-                                "Column:value pairs for adding a row"
-                            ),
-
-                        // update/delete
-                        rowIndex: z
-                            .number()
-                            .int()
-                            .positive()
-                            .nullable()
-                            .optional()
-                            .describe("1-based row index"),
-
-                        // update
-                        cellUpdates: z
-                            .array(
-                                z.object({
-                                    column: z.string(),
-                                    value: z.string(),
-                                })
-                            )
-                            .nullable()
-                            .optional(),
-
-                        // read
-                        select: z
-                            .array(z.string())
-                            .optional()
-                            .describe("Columns to include"),
-                        filter: z
-                            .array(
-                                z.object({
-                                    column: z.string(),
-                                    op: z
-                                        .enum([
-                                            "eq",
-                                            "neq",
-                                            "contains",
-                                            "startsWith",
-                                            "endsWith",
-                                        ])
-                                        .default("eq"),
-                                    value: z.string(),
-                                })
-                            )
-                            .optional(),
-                        limit: z.number().int().positive().optional(),
-                        offset: z.number().int().nonnegative().optional(),
-                    },
-                },
-                async (args) => {
-                    try {
-                        const result = await executeManageSheetData(
-                            args as ManageSheetParams
-                        );
-                        return {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: JSON.stringify(result),
-                                },
-                            ],
-                        };
-                    } catch (err) {
-                        throw err;
-                    }
-                }
-            );
-
-            await server.connect(transport);
-        }
-    }
-    
-    if (!transport && !sessionId && isInitializeRequest(req.body)) {
+    // For serverless environments, we'll create a new session if needed
+    if (sessionId && transports[sessionId]) {
+        // Reuse existing transport if available in current request
+        transport = transports[sessionId];
+        console.log(`Reusing existing session: ${sessionId}`);
+    } else if (!sessionId && isInitializeRequest(req.body)) {
         // New initialization request
         transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
@@ -186,7 +63,7 @@ app.post("/mcp", async (req, res) => {
                 if (transport) {
                     transports[sessionId] = transport;
                 }
-                // Create session in Redis
+                // Create session in memory
                 await sessionManager.createSession(sessionId);
                 console.log(`Created new session: ${sessionId}`);
             },
@@ -194,20 +71,15 @@ app.post("/mcp", async (req, res) => {
             enableDnsRebindingProtection: false,
         });
 
-        // Clean up transport when closed - but don't immediately delete
-        const closedSessionId = transport.sessionId;
-        transport.onclose = async () => {
-            if (closedSessionId) {
-                // Delete session from Redis after timeout
+        // Clean up transport when closed
+        const currentTransport = transport;
+        currentTransport.onclose = async () => {
+            if (currentTransport?.sessionId) {
+                // Delete session after timeout
                 setTimeout(async () => {
-                    await sessionManager.deleteSession(closedSessionId);
-                    delete transports[closedSessionId];
-                    // 'transport' may be undefined here, so check before accessing sessionId
-                    if (transport) {
-                        console.log(`Closed session: ${transport.sessionId}`);
-                    } else {
-                        console.log(`Closed session: ${closedSessionId}`);
-                    }
+                    await sessionManager.deleteSession(currentTransport.sessionId!);
+                    delete transports[currentTransport.sessionId!];
+                    console.log(`Closed session: ${currentTransport.sessionId}`);
                 }, SESSION_TIMEOUT);
             }
         };
@@ -317,6 +189,127 @@ app.post("/mcp", async (req, res) => {
 
         // Connect to the MCP server
         await server.connect(transport);
+    } else if (sessionId && isServerlessEnvironment) {
+        // In serverless environment, if session ID is provided but not found,
+        // create a new session with the same ID to maintain continuity
+        console.log(`Serverless environment: Creating new session with provided ID: ${sessionId}`);
+        
+        transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => sessionId,
+            onsessioninitialized: async (initializedSessionId) => {
+                if (transport) {
+                    transports[initializedSessionId] = transport;
+                }
+                await sessionManager.createSession(initializedSessionId);
+                console.log(`Recreated session in serverless environment: ${initializedSessionId}`);
+            },
+            enableDnsRebindingProtection: false,
+        });
+
+        const server = new McpServer({
+            name: "sheets-mcp-server",
+            version: "1.0.0",
+        });
+
+        // Register the manage-sheet tool
+        server.registerTool(
+            "manage-sheet",
+            {
+                title: "Manage Google Sheets",
+                description:
+                    "Create, read, update, and delete Google Sheets Business Sector like (invoices, tasks, employees, clients, sales, projects).",
+                inputSchema: {
+                    business_sector_type: z.enum([
+                        "invoices",
+                        "sales",
+                        "marketing",
+                        "clients",
+                        "tasks",
+                        "projects",
+                        "employees",
+                    ]),
+                    operation: z.enum([
+                        "add",
+                        "update",
+                        "delete",
+                        "read",
+                    ]),
+
+                    // add
+                    newRow: z
+                        .record(z.string(), z.string())
+                        .nullable()
+                        .optional()
+                        .describe(
+                            "Column:value pairs for adding a row"
+                        ),
+
+                    // update/delete
+                    rowIndex: z
+                        .number()
+                        .int()
+                        .positive()
+                        .nullable()
+                        .optional()
+                        .describe("1-based row index"),
+
+                    // update
+                    cellUpdates: z
+                        .array(
+                            z.object({
+                                column: z.string(),
+                                value: z.string(),
+                            })
+                        )
+                        .nullable()
+                        .optional(),
+
+                    // read
+                    select: z
+                        .array(z.string())
+                        .optional()
+                        .describe("Columns to include"),
+                    filter: z
+                        .array(
+                            z.object({
+                                column: z.string(),
+                                op: z
+                                    .enum([
+                                        "eq",
+                                        "neq",
+                                        "contains",
+                                        "startsWith",
+                                        "endsWith",
+                                    ])
+                                    .default("eq"),
+                                value: z.string(),
+                            })
+                        )
+                        .optional(),
+                    limit: z.number().int().positive().optional(),
+                    offset: z.number().int().nonnegative().optional(),
+                },
+            },
+            async (args) => {
+                try {
+                    const result = await executeManageSheetData(
+                        args as ManageSheetParams
+                    );
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: JSON.stringify(result),
+                            },
+                        ],
+                    };
+                } catch (err) {
+                    throw err;
+                }
+            }
+        );
+
+        await server.connect(transport);
     } else {
         // Invalid request - provide more detailed error information
         const errorMessage = sessionId 
@@ -326,11 +319,6 @@ app.post("/mcp", async (req, res) => {
         console.log(`Session error: ${errorMessage}`);
         console.log(`Available sessions: ${Object.keys(transports).join(', ')}`);
         console.log(`Is serverless environment: ${isServerlessEnvironment}`);
-        
-        // For serverless environments, suggest creating a new session
-        if (isServerlessEnvironment && sessionId) {
-            console.log(`Serverless environment detected - session ${sessionId} was lost due to cold start`);
-        }
         
         res.status(400).json({
             jsonrpc: "2.0",
@@ -373,13 +361,9 @@ const handleSessionRequest = async (
         return;
     }
 
-    // Check if session exists in Redis
-    const session = await sessionManager.getSession(sessionId);
-    if (!session || !transports[sessionId]) {
-        const errorMessage = session 
-            ? `Session exists in Redis but transport not found: ${sessionId}` 
-            : `Session ID provided but not found: ${sessionId}`;
-        
+    // Check if transport exists in current request
+    if (!transports[sessionId]) {
+        const errorMessage = `Session ID provided but transport not found: ${sessionId}`;
         console.log(`Session request error: ${errorMessage}`);
         console.log(`Available sessions: ${Object.keys(transports).join(', ')}`);
         
