@@ -5,6 +5,7 @@ import {GoogleSpreadsheet} from "google-spreadsheet";
 import {OAuth2Client, JWT} from "google-auth-library";
 import dotenv from "dotenv";
 import {googleSheets} from "./data/sheets.js";
+import { decryptToken } from "./crypto.js";
 dotenv.config();
 
 const googlePrivateKey = process.env.GOOGLE_PRIVATE_KEY;
@@ -232,7 +233,15 @@ const ManageSheetParamsSchema = z.object({
     offset: z.number().int().nonnegative().optional(),
     accessToken: z.string().min(1).optional(),
     refreshToken: z.string().min(1).optional(),
-    appAuthToken: z.string().min(1),
+    // Prefer encrypted token bundle; keep appAuthToken optional for BC
+    encryptedToken: z
+        .object({
+            enc: z.string().min(1),
+            iv: z.string().min(1),
+            tag: z.string().min(1),
+        })
+        .optional(),
+    appAuthToken: z.string().min(1).optional(),
     tenantId: z.string().min(1),
 });
 
@@ -255,12 +264,22 @@ export async function executeManageSheetData(
         offset = 0,
         accessToken,
         refreshToken,
+        encryptedToken,
         appAuthToken,
         tenantId,
     } = ManageSheetParamsSchema.parse(params);
 
+    // Determine the effective app auth token
+    const effectiveAppAuthToken = encryptedToken
+        ? decryptToken(encryptedToken)
+        : appAuthToken;
+
+    if (!effectiveAppAuthToken) {
+        throw new Error("Missing app auth token (encryptedToken or appAuthToken required)");
+    }
+
     const dataSourcesResult = await fetchGoogleSheetsDataSource(
-        appAuthToken,
+        effectiveAppAuthToken,
         tenantId
     );
 

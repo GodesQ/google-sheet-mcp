@@ -125,6 +125,17 @@ const createMcpServer = () => {
                     .optional(),
                 limit: z.number().int().positive().optional().default(100),
                 offset: z.number().int().nonnegative().optional(),
+                // Auth/context
+                tenantId: z.string().min(1),
+                encryptedToken: z
+                    .object({
+                        enc: z.string().min(1),
+                        iv: z.string().min(1),
+                        tag: z.string().min(1),
+                    })
+                    .optional(),
+                // Backward compatibility (not recommended)
+                appAuthToken: z.string().min(1).optional(),
             },
         },
         async (args) => {
