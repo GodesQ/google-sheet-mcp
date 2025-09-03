@@ -78,6 +78,62 @@ type SheetRegistryEntry = {
     tabTitle?: string;
 };
 
+/**
+ * Extracted data shapes from the Data Sources API
+ */
+type ExtractedSpreadsheet = {
+    id: string;
+    url: string;
+    category?: string | null;
+};
+
+type ExtractedDataSource = {
+    id?: string;
+    tenant_id?: string | number;
+    name?: string;
+    type?: string;
+    oauth: {
+        access_token: string;
+        refresh_token: string;
+    } | null;
+    spreadsheets: ExtractedSpreadsheet[];
+};
+
+/** Safely extract OAuth + spreadsheets from server response */
+function extractGoogleSheetsConfigs(responseData: any): ExtractedDataSource[] {
+    const sources = Array.isArray(responseData?.data)
+        ? responseData.data
+        : [];
+
+    return sources.map((src: any): ExtractedDataSource => {
+        const oauth = src?.config_data?.oauth ?? null;
+        const spreadsheetsRaw = Array.isArray(src?.config_data?.spreadsheets)
+            ? src.config_data.spreadsheets
+            : [];
+        const spreadsheets: ExtractedSpreadsheet[] = spreadsheetsRaw
+            .filter((s: any) => s && (s.id || s.url))
+            .map((s: any) => ({
+                id: String(s.id ?? ""),
+                url: String(s.url ?? ""),
+                category: s.category ?? null,
+            }));
+
+        return {
+            id: src?.id,
+            tenant_id: src?.tenant_id,
+            name: src?.name,
+            type: src?.type,
+            oauth: oauth && typeof oauth === "object"
+                ? {
+                      access_token: String(oauth.access_token ?? ""),
+                      refresh_token: String(oauth.refresh_token ?? ""),
+                  }
+                : null,
+            spreadsheets,
+        };
+    });
+}
+
 /** Centralized auth client (service account) */
 const auth = new JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -203,11 +259,24 @@ export async function executeManageSheetData(
         tenantId,
     } = ManageSheetParamsSchema.parse(params);
 
-    // const result =
-
-    const matchedSheet = googleSheets.find(
-        (s) => s.type === business_sector_type
+    const dataSourcesResult = await fetchGoogleSheetsDataSource(
+        appAuthToken,
+        tenantId
     );
+
+    if (dataSourcesResult.status === "failed") {
+        throw new Error(dataSourcesResult.message);
+    }
+
+    // Try to find a sheetId from fetched data sources by matching the category to business_sector_type
+    const extractedSources = dataSourcesResult.extractedSources ?? [];
+    const dynamicMatch = extractedSources
+        .flatMap((s) => s.spreadsheets)
+        .find((sp) => (sp.category ?? "") === business_sector_type);
+
+    const matchedSheet = dynamicMatch
+        ? {type: business_sector_type, sheetId: dynamicMatch.id}
+        : googleSheets.find((s) => s.type === business_sector_type);
 
     if (!matchedSheet)
         throw new Error(
@@ -216,8 +285,12 @@ export async function executeManageSheetData(
 
     let doc: GoogleSpreadsheet;
 
+    // Prefer OAuth2 credentials from params; fall back to first data source oauth if available
+    const effectiveAccessToken = accessToken ?? extractedSources.find((s) => s.oauth)?.oauth?.access_token;
+    const effectiveRefreshToken = refreshToken ?? extractedSources.find((s) => s.oauth)?.oauth?.refresh_token;
+
     // If access token is provided, use OAuth2 flow
-    if (accessToken && refreshToken) {
+    if (effectiveAccessToken && effectiveRefreshToken) {
         const oauth2Client = new OAuth2Client({
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
@@ -226,8 +299,8 @@ export async function executeManageSheetData(
 
         // Set the credentials with refresh token
         oauth2Client.setCredentials({
-            access_token: accessToken,
-            refresh_token: refreshToken,
+            access_token: effectiveAccessToken,
+            refresh_token: effectiveRefreshToken,
         });
 
         // Get a fresh access token
@@ -367,9 +440,12 @@ async function fetchGoogleSheetsDataSource(
             throw new Error(data.message);
         }
 
+        const extractedSources = extractGoogleSheetsConfigs(data);
+
         return {
             status: "success",
-            data,
+            responseData: data,
+            extractedSources,
         };
     } catch (error) {
         console.error(

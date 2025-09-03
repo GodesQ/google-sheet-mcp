@@ -8,6 +8,9 @@ A Model Context Protocol (MCP) server for managing Google Sheets with business s
 - **Concurrent Request Support**: Handles multiple consecutive MCP tool calls without session loss
 - **Serverless Ready**: Optimized for Vercel serverless deployment
 - **Business Sector Management**: CRUD operations for various business data types
+- **Data Source Extraction**: Fetches Google Sheets data sources from your backend, extracts OAuth credentials and spreadsheets
+- **Dynamic Spreadsheet Mapping**: Resolves sheetId by matching `category` to the requested business sector, with static fallback
+- **Auth Flexibility**: Uses OAuth2 (access/refresh tokens) when available, otherwise falls back to service account (JWT)
 
 ## Setup
 
@@ -22,10 +25,23 @@ npm install
 Create a `.env` file with the following variables:
 
 ```env
-# Google Sheets API
-GOOGLE_SHEETS_PRIVATE_KEY=your_private_key_here
-GOOGLE_SHEETS_CLIENT_EMAIL=your_client_email_here
-GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id_here
+# Google Service Account (JWT fallback)
+GOOGLE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
+GOOGLE_SERVICE_ACCOUNT_EMAIL=svc-account@project.iam.gserviceaccount.com
+
+# Optional: OAuth2 client info (used when OAuth tokens are provided)
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
+
+# Optional: registry-based static fallback (see src/data/sheets.ts)
+# e.g., per-type sheet IDs if not resolved dynamically from data sources
+# SHEET_ID_INVOICES=
+# SHEET_ID_SALES=
+# SHEET_ID_MARKETING=
+# SHEET_ID_CLIENTS=
+# SHEET_ID_TASKS=
+# SHEET_ID_PROJECTS=
+# SHEET_ID_EMPLOYEES=
 
 # Upstash Redis (Required for session management)
 UPSTASH_REDIS_REST_URL=https://your-redis-url.upstash.io
@@ -140,6 +156,10 @@ Ensure all required environment variables are set:
 ```bash
 echo $UPSTASH_REDIS_REST_URL
 echo $UPSTASH_REDIS_REST_TOKEN
+echo $GOOGLE_PRIVATE_KEY
+echo $GOOGLE_SERVICE_ACCOUNT_EMAIL
+echo $GOOGLE_CLIENT_ID
+echo $GOOGLE_CLIENT_SECRET
 ```
 
 ## Deployment
@@ -153,9 +173,10 @@ The server is optimized for Vercel serverless deployment. Sessions persist acros
 Set the following environment variables in your Vercel project:
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
-- `GOOGLE_SHEETS_PRIVATE_KEY`
-- `GOOGLE_SHEETS_CLIENT_EMAIL`
-- `GOOGLE_SHEETS_SPREADSHEET_ID`
+- `GOOGLE_PRIVATE_KEY`
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
 
 ## License
 
