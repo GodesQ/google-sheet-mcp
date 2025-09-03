@@ -211,32 +211,47 @@ export async function executeManageSheetData(
             `Unknown sheet type: ${business_sector_type}`
         );
 
-    // Create OAuth2 client
-    const oauth2Client = new OAuth2Client({
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        redirectUri: `https://google-sheet-mcp.vercel.app/api/auth/callback/google`, // This is required for refresh token flow
-    });
+    let doc: GoogleSpreadsheet;
 
-    // Set the credentials with refresh token
-    oauth2Client.setCredentials({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-    });
+    // If access token is provided, use OAuth2 flow
+    if (accessToken && refreshToken) {
+        const oauth2Client = new OAuth2Client({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            redirectUri: `http://localhost:3000/api/auth/callback/google`,
+        });
 
-    // Get a fresh access token
-    const {token} = await oauth2Client.getAccessToken();
+        // Set the credentials with refresh token
+        oauth2Client.setCredentials({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+        });
 
-    if (!token) {
-        throw new Error("Failed to get access token");
+        // Get a fresh access token
+        const {token} = await oauth2Client.getAccessToken();
+        if (!token) {
+            throw new Error("Failed to get access token");
+        }
+
+        doc = new GoogleSpreadsheet(matchedSheet.sheetId, {
+            token: token,
+        });
+    } else {
+        // Fall back to service account authentication using JWT
+        const serviceAccountAuth = new JWT({
+            email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+            key: process.env.GOOGLE_PRIVATE_KEY?.replace(
+                /\\n/g,
+                "\n"
+            ),
+            scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+        });
+
+        doc = new GoogleSpreadsheet(
+            matchedSheet.sheetId,
+            serviceAccountAuth
+        );
     }
-
-    // Initialize Google Spreadsheet with the access token
-    const doc = new GoogleSpreadsheet(matchedSheet.sheetId, {
-        token: token,
-        // The google-spreadsheet library will automatically use the refresh token
-        // when the access token expires
-    });
 
     await doc.loadInfo();
     const sheet =
