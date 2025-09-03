@@ -174,8 +174,8 @@ const ManageSheetParamsSchema = z.object({
         .optional(),
     limit: z.number().int().positive().optional(),
     offset: z.number().int().nonnegative().optional(),
-    accessToken: z.string().min(1),
-    refreshToken: z.string().min(1),
+    accessToken: z.string().min(1).optional(),
+    refreshToken: z.string().min(1).optional(),
     appAuthToken: z.string().optional(),
 });
 
