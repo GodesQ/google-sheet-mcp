@@ -215,7 +215,7 @@ export async function executeManageSheetData(
     const oauth2Client = new OAuth2Client({
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        redirectUri: `${window.location.origin}/api/auth/callback/google`, // This is required for refresh token flow
+        redirectUri: `https://google-sheet-mcp.vercel.app/api/auth/callback/google`, // This is required for refresh token flow
     });
 
     // Set the credentials with refresh token
