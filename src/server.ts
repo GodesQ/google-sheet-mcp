@@ -176,14 +176,14 @@ const ManageSheetParamsSchema = z.object({
     offset: z.number().int().nonnegative().optional(),
     accessToken: z.string().min(1).optional(),
     refreshToken: z.string().min(1).optional(),
-    appAuthToken: z.string().optional(),
+    appAuthToken: z.string().min(1),
+    tenantId: z.string().min(1),
 });
 
 export type ManageSheetParams = z.infer<
     typeof ManageSheetParamsSchema
 >;
 
-/** Core executor for manage-sheet-data (safe to call from MCP handler) */
 export async function executeManageSheetData(
     params: ManageSheetParams
 ) {
@@ -200,7 +200,10 @@ export async function executeManageSheetData(
         accessToken,
         refreshToken,
         appAuthToken,
+        tenantId,
     } = ManageSheetParamsSchema.parse(params);
+
+    // const result =
 
     const matchedSheet = googleSheets.find(
         (s) => s.type === business_sector_type
@@ -339,4 +342,46 @@ export async function executeManageSheetData(
     }
 
     return {success: false, message: "Invalid operation"};
+}
+
+async function fetchGoogleSheetsDataSource(
+    appAuthToken: string,
+    tenantId: string | null
+) {
+    try {
+        const response = await fetch(
+            `http://127.0.0.1:8000/api/tenants/${tenantId}/data-sources/google-sheets`,
+            {
+                method: "GET",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${appAuthToken}`,
+                    accept: "application/json",
+                },
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message);
+        }
+
+        return {
+            status: "success",
+            data,
+        };
+    } catch (error) {
+        console.error(
+            "Error fetching Google Sheets data source:",
+            error
+        );
+        return {
+            status: "failed",
+            message:
+                error instanceof Error
+                    ? error.message
+                    : "Unknown error",
+        };
+    }
 }
