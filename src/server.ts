@@ -322,15 +322,34 @@ export async function executeManageSheetData(
             refresh_token: effectiveRefreshToken,
         });
 
-        // Get a fresh access token
-        const {token} = await oauth2Client.getAccessToken();
-        if (!token) {
+        // Get a fresh access token (will auto-refresh using refresh_token if needed)
+        const {token: initialToken} = await oauth2Client.getAccessToken();
+        if (!initialToken) {
             throw new Error("Failed to get access token");
         }
 
-        doc = new GoogleSpreadsheet(matchedSheet.sheetId, {
-            token: token,
-        });
+        // Initialize with obtained token
+        doc = new GoogleSpreadsheet(matchedSheet.sheetId, { token: initialToken });
+        
+        // Attempt to load, if unauthorized try one refresh-and-retry cycle
+        try {
+            await doc.loadInfo();
+        } catch (err: any) {
+            const status = err?.response?.status || err?.code;
+            const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
+            const isUnauthorized = status === 401 || message.includes("401") || message.includes("unauthorized") || message.includes("invalid_grant") || message.includes("invalid token") || message.includes("invalid_credentials");
+
+            if (!isUnauthorized) throw err;
+
+            // Refresh access token and retry once
+            const { token: refreshedToken } = await oauth2Client.getAccessToken();
+            if (!refreshedToken) {
+                throw new Error("Failed to refresh access token after 401");
+            }
+            doc = new GoogleSpreadsheet(matchedSheet.sheetId, { token: refreshedToken });
+            // Retry load once; propagate error if it fails
+            await doc.loadInfo();
+        }
     } else {
         // Fall back to service account authentication using JWT
         const serviceAccountAuth = new JWT({
@@ -348,7 +367,11 @@ export async function executeManageSheetData(
         );
     }
 
-    await doc.loadInfo();
+    // At this point, doc.loadInfo() was already called for OAuth2 path with retry.
+    // For service account path, we still need to load here.
+    if (!(effectiveAccessToken && effectiveRefreshToken)) {
+        await doc.loadInfo();
+    }
     const sheet =
         doc.sheetsByTitle[business_sector_type] ??
         doc.sheetsByIndex[0];
