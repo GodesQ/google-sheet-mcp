@@ -123,7 +123,7 @@ const createMcpServer = () => {
                         })
                     )
                     .optional(),
-                limit: z.number().int().positive().optional(),
+                limit: z.number().int().positive().optional().default(100),
                 offset: z.number().int().nonnegative().optional(),
             },
         },

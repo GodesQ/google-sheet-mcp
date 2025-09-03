@@ -1,20 +1,8 @@
 // server.ts
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-import {Server} from "@modelcontextprotocol/sdk/server/index.js";
-import {StreamableHTTPServerTransport} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import {
-    Notification,
-    CallToolRequestSchema,
-    ListToolsRequestSchema,
-    JSONRPCError,
-    InitializeRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import {randomUUID} from "crypto";
-import {Request, Response} from "express";
 import {z} from "zod";
 import {GoogleSpreadsheet} from "google-spreadsheet";
-import {JWT} from "google-auth-library"; // types are bundled, no @types needed
+import {OAuth2Client, JWT} from "google-auth-library";
 import dotenv from "dotenv";
 import {googleSheets} from "./data/sheets.js";
 dotenv.config();
@@ -90,61 +78,6 @@ type SheetRegistryEntry = {
     tabTitle?: string;
 };
 
-/** Build a registry from either GOOGLE_SHEETS_REGISTRY JSON or fallback envs */
-function buildSheetsRegistry(): SheetRegistryEntry[] {
-    // if (ENV.GOOGLE_SHEETS_REGISTRY) {
-    //     try {
-    //         const parsed = JSON.parse(
-    //             ENV.GOOGLE_SHEETS_REGISTRY
-    //         ) as SheetRegistryEntry[];
-    //         // Validate structure and allowed types
-    //         const schema = z.array(
-    //             z.object({
-    //                 type: z.enum([
-    //                     "invoices",
-    //                     "sales",
-    //                     "marketing",
-    //                     "clients",
-    //                     "tasks",
-    //                     "projects",
-    //                     "employees",
-    //                 ]),
-    //                 sheetId: z.string().min(1),
-    //                 tabTitle: z.string().optional(),
-    //             })
-    //         );
-    //         return schema.parse(parsed);
-    //     } catch (e) {
-    //         throw new Error(
-    //             `Invalid GOOGLE_SHEETS_REGISTRY JSON: ${
-    //                 (e as Error).message
-    //             }`
-    //         );
-    //     }
-    // }
-
-    // Fallback: build from individual env vars if present
-    const fallback: Array<[SheetType, string | undefined]> = [
-        ["invoices", "1nBtMw0O8I5X2DrGnWXMtP-u0wQLRRQqF_Zz_Ppe8uY4"],
-        ["sales", ""],
-        ["marketing", ""],
-        ["clients", "1qm1qoKMvtyXoMyboSPAZmq3I9Xhw3fLiO-CijjfrE4A"],
-        ["tasks", "1zzNbFSyET6EfvkSvm8jGGIQkBtVTFrotGEU4_bInpoY"],
-        ["projects", "1hFjdaGlEGuyS5buCoMdKkdgoy27Ia_6txbSlsdyKbyc"],
-        ["employees", "1UIIAt8IlyEP2NV8KUcubg3hlvvn3dKhcKOuWZYH7cJM"],
-    ];
-
-    return fallback
-        .filter(([, id]) => Boolean(id))
-        .map(([type, sheetId]) => ({
-            type,
-            sheetId: sheetId as string,
-        }));
-}
-
-const googleSheetsRegistry: SheetRegistryEntry[] =
-    buildSheetsRegistry();
-
 /** Centralized auth client (service account) */
 const auth = new JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -157,34 +90,6 @@ const auth = new JWT({
  *  GOOGLE SHEETS HELPERS
  * =========================
  */
-
-async function openSheetByType(type: SheetType) {
-    const entry = googleSheetsRegistry.find((s) => s.type === type);
-    if (!entry) {
-        const available = googleSheetsRegistry
-            .map((s) => s.type)
-            .join(", ");
-        throw new Error(
-            `Unknown sheet type "${type}". Available types: ${
-                available || "none configured"
-            }`
-        );
-    }
-
-    const doc = new GoogleSpreadsheet(entry.sheetId, auth);
-    await doc.loadInfo();
-
-    // choose tab: prefer explicit tabTitle if provided, else type name, else index 0
-    const title = entry.tabTitle ?? type;
-    const sheet =
-        (doc.sheetsByTitle && (doc.sheetsByTitle as any)[title]) ??
-        doc.sheetsByTitle[type] ??
-        doc.sheetsByIndex[0];
-
-    if (!sheet)
-        throw new Error(`Worksheet/tab not found for type "${type}"`);
-    return {doc, sheet};
-}
 
 function normalizeHeaderResolver(headers: string[]) {
     const normalized = headers.map((h) => h.trim().toLowerCase());
@@ -269,6 +174,9 @@ const ManageSheetParamsSchema = z.object({
         .optional(),
     limit: z.number().int().positive().optional(),
     offset: z.number().int().nonnegative().optional(),
+    accessToken: z.string().min(1),
+    refreshToken: z.string().min(1),
+    appAuthToken: z.string().min(1),
 });
 
 export type ManageSheetParams = z.infer<
@@ -289,6 +197,9 @@ export async function executeManageSheetData(
         filter,
         limit = 100,
         offset = 0,
+        accessToken,
+        refreshToken,
+        appAuthToken,
     } = ManageSheetParamsSchema.parse(params);
 
     const matchedSheet = googleSheets.find(
@@ -300,7 +211,33 @@ export async function executeManageSheetData(
             `Unknown sheet type: ${business_sector_type}`
         );
 
-    const doc = new GoogleSpreadsheet(matchedSheet.sheetId, auth);
+    // Create OAuth2 client
+    const oauth2Client = new OAuth2Client({
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        redirectUri: `${window.location.origin}/api/auth/callback/google`, // This is required for refresh token flow
+    });
+
+    // Set the credentials with refresh token
+    oauth2Client.setCredentials({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+    });
+
+    // Get a fresh access token
+    const {token} = await oauth2Client.getAccessToken();
+
+    if (!token) {
+        throw new Error("Failed to get access token");
+    }
+
+    // Initialize Google Spreadsheet with the access token
+    const doc = new GoogleSpreadsheet(matchedSheet.sheetId, {
+        token: token,
+        // The google-spreadsheet library will automatically use the refresh token
+        // when the access token expires
+    });
+
     await doc.loadInfo();
     const sheet =
         doc.sheetsByTitle[business_sector_type] ??
