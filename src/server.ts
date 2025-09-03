@@ -176,7 +176,7 @@ const ManageSheetParamsSchema = z.object({
     offset: z.number().int().nonnegative().optional(),
     accessToken: z.string().min(1),
     refreshToken: z.string().min(1),
-    appAuthToken: z.string().min(1),
+    appAuthToken: z.string().optional(),
 });
 
 export type ManageSheetParams = z.infer<
