@@ -13,7 +13,8 @@
         "vercel-build": "tsc",
         "test:redis": "node test-redis.js",
         "test:sessions": "node test-session-management.js",
-        "test:consecutive": "node test-consecutive-calls.js --test"
+        "test:consecutive": "node test-consecutive-calls.js --test",
+        "test:fetch-datasource": "npm run build && node test-fetch-datasource.js"
     },
     "files": [
         "build"

@@ -549,22 +549,29 @@ export async function executeManageSheetData(
     return {success: false, message: "Invalid operation", line: 549};
 }
 
-async function fetchGoogleSheetsDataSource(
+export async function fetchGoogleSheetsDataSource(
     appAuthToken: string,
     tenantId: string | null
 ) {
     try {
         const url = `http://127.0.0.1:8000/api/v1/tenants/${tenantId}/data-sources/google-sheets`;
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: "GET",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer 12|GzryFEnhHfGDvsKabW1RBHpg4MZhBwO51j2DCJQB45239457`,
+                Authorization: `Bearer ${appAuthToken}`,
                 accept: "application/json",
             },
+            timeoutMs: 5000,
         });
 
-        const data = await response.json();
+        const text = await response.text();
+        let data: any;
+        try {
+            data = text ? JSON.parse(text) : {};
+        } catch {
+            data = {raw: text};
+        }
 
         if (!response.ok) {
             const statusInfo = `HTTP ${response.status}${
