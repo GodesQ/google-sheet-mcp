@@ -572,9 +572,11 @@ async function fetchGoogleSheetsDataSource(
             }`;
             const msg =
                 data?.message || data?.error || JSON.stringify(data);
-            throw new Error(
-                `Data-sources request failed: ${statusInfo} - ${msg}`
-            );
+            return {
+                status: "failed",
+                message: `Data-sources request failed: ${statusInfo} - ${msg}`,
+                line: 578,
+            };
         }
 
         const extractedSources = extractGoogleSheetsConfigs(data);
