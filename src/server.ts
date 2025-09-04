@@ -369,8 +369,21 @@ export async function executeManageSheetData(
         });
 
         // Get a fresh access token (will auto-refresh using refresh_token if needed)
-        const {token: initialToken} =
+        let {token: initialToken} =
             await oauth2Client.getAccessToken();
+        // If for some reason we didn't get a token, force a refresh using the refresh token
+        if (!initialToken) {
+            try {
+                // Ensure we only provide the refresh token, letting the library fetch a new access token
+                oauth2Client.setCredentials({
+                    refresh_token: effectiveRefreshToken,
+                });
+                const refreshed = await oauth2Client.getAccessToken();
+                initialToken = refreshed.token ?? null;
+            } catch (e) {
+                // no-op; handled below
+            }
+        }
         if (!initialToken) {
             return {
                 success: false,
@@ -402,9 +415,17 @@ export async function executeManageSheetData(
 
             if (!isUnauthorized) throw err;
 
-            // Refresh access token and retry once
-            const {token: refreshedToken} =
-                await oauth2Client.getAccessToken();
+            // Force-refresh access token and retry once
+            let refreshedToken: string | null = null;
+            try {
+                oauth2Client.setCredentials({
+                    refresh_token: effectiveRefreshToken,
+                });
+                const refreshed = await oauth2Client.getAccessToken();
+                refreshedToken = refreshed.token ?? null;
+            } catch (e) {
+                // no-op; handled below
+            }
             if (!refreshedToken) {
                 return {
                     success: false,
@@ -559,7 +580,7 @@ export async function fetchGoogleSheetsDataSource(
             method: "GET",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer 12|GzryFEnhHfGDvsKabW1RBHpg4MZhBwO51j2DCJQB45239457`,
+                Authorization: `Bearer ${appAuthToken}`,
                 accept: "application/json",
             },
         });
