@@ -69,7 +69,7 @@ const ENV = z
 const DATA_SOURCES_API_BASE_URL =
     ENV.DATA_SOURCES_API_BASE_URL ||
     process.env.BACKEND_URL ||
-    "http://127.0.0.1:8000";
+    "https://688dd0c04f88.ngrok-free.app";
 
 // Small utility to add fetch timeouts
 function fetchWithTimeout(
@@ -554,7 +554,7 @@ export async function fetchGoogleSheetsDataSource(
     tenantId: string | null
 ) {
     try {
-        const url = `http://127.0.0.1:8000/api/v1/tenants/${tenantId}/data-sources/google-sheets`;
+        const url = `https://688dd0c04f88.ngrok-free.app/api/v1/tenants/${tenantId}/data-sources/google-sheets`;
         const response = await fetchWithTimeout(url, {
             method: "GET",
             headers: {
