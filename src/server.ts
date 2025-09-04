@@ -323,7 +323,7 @@ export async function executeManageSheetData(
         return {
             success: false,
             message: dataSourcesResult.message,
-            line: 323,
+            line: dataSourcesResult.line ?? 326,
         };
     }
 
