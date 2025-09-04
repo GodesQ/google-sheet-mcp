@@ -320,7 +320,11 @@ export async function executeManageSheetData(
     );
 
     if (dataSourcesResult.status === "failed") {
-        return {success: false, message: dataSourcesResult.message};
+        return {
+            success: false,
+            message: dataSourcesResult.message,
+            line: 323,
+        };
     }
 
     // Try to find a sheetId from fetched data sources by matching the category to business_sector_type
@@ -334,7 +338,11 @@ export async function executeManageSheetData(
         : googleSheets.find((s) => s.type === business_sector_type);
 
     if (!matchedSheet)
-        return {success: false, message: "Unknown sheet type"};
+        return {
+            success: false,
+            message: "Unknown sheet type",
+            line: 344,
+        };
 
     let doc: GoogleSpreadsheet;
 
@@ -367,6 +375,7 @@ export async function executeManageSheetData(
             return {
                 success: false,
                 message: "Failed to get access token",
+                line: 378,
             };
         }
 
@@ -401,6 +410,7 @@ export async function executeManageSheetData(
                     success: false,
                     message:
                         "Failed to refresh access token after 401",
+                    line: 413,
                 };
             }
             doc = new GoogleSpreadsheet(matchedSheet.sheetId, {
@@ -440,6 +450,7 @@ export async function executeManageSheetData(
             return {
                 success: false,
                 message: "newRow is required for add operation",
+                line: 453,
             };
         await sheet.addRow(newRow);
         return {
@@ -455,6 +466,7 @@ export async function executeManageSheetData(
                 success: false,
                 message:
                     "rowIndex and non-empty cellUpdates are required for update",
+                line: 469,
             };
         }
         await sheet.loadHeaderRow();
@@ -467,6 +479,7 @@ export async function executeManageSheetData(
             return {
                 success: false,
                 message: `Row ${rowIndex} not found`,
+                line: 482,
             };
 
         for (const {column, value} of cellUpdates) {
@@ -493,6 +506,7 @@ export async function executeManageSheetData(
             return {
                 success: false,
                 message: "rowIndex is required for delete",
+                line: 509,
             };
         const rows = await sheet.getRows();
         const row = rows[rowIndex - 1];
@@ -500,6 +514,7 @@ export async function executeManageSheetData(
             return {
                 success: false,
                 message: `Row ${rowIndex} not found`,
+                line: 517,
             };
         await row.delete();
         return {success: true, message: `Row ${rowIndex} deleted`};
@@ -531,7 +546,7 @@ export async function executeManageSheetData(
         return result;
     }
 
-    return {success: false, message: "Invalid operation"};
+    return {success: false, message: "Invalid operation", line: 549};
 }
 
 async function fetchGoogleSheetsDataSource(
@@ -584,6 +599,7 @@ async function fetchGoogleSheetsDataSource(
                 error instanceof Error
                     ? error.message
                     : "Unknown error",
+            line: 602,
         };
     }
 }
