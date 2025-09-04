@@ -555,14 +555,13 @@ export async function fetchGoogleSheetsDataSource(
 ) {
     try {
         const url = `https://688dd0c04f88.ngrok-free.app/api/v1/tenants/${tenantId}/data-sources/google-sheets`;
-        const response = await fetchWithTimeout(url, {
+        const response = await fetch(url, {
             method: "GET",
             headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${appAuthToken}`,
                 accept: "application/json",
             },
-            timeoutMs: 5000,
         });
 
         const text = await response.text();
