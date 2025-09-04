@@ -559,7 +559,7 @@ export async function fetchGoogleSheetsDataSource(
             method: "GET",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${appAuthToken}`,
+                Authorization: `Bearer 12|GzryFEnhHfGDvsKabW1RBHpg4MZhBwO51j2DCJQB45239457`,
                 accept: "application/json",
             },
         });
