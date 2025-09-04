@@ -60,8 +60,30 @@ const ENV = z
         SHEET_ID_TASKS: z.string().optional(),
         SHEET_ID_PROJECTS: z.string().optional(),
         SHEET_ID_EMPLOYEES: z.string().optional(),
+        DATA_SOURCES_API_BASE_URL: z.string().optional(),
     })
     .parse(process.env as any);
+
+// Backend API base for data-sources
+// Prefer explicit DATA_SOURCES_API_BASE_URL, fallback to BACKEND_URL, then local default
+const DATA_SOURCES_API_BASE_URL =
+    ENV.DATA_SOURCES_API_BASE_URL ||
+    process.env.BACKEND_URL ||
+    "http://127.0.0.1:8000";
+
+// Small utility to add fetch timeouts
+function fetchWithTimeout(
+    resource: string,
+    options: RequestInit & {timeoutMs?: number} = {}
+) {
+    const {timeoutMs = 10000, ...rest} = options;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(resource, {
+        ...rest,
+        signal: controller.signal,
+    }).finally(() => clearTimeout(id));
+}
 
 type SheetType =
     | "invoices"
@@ -498,22 +520,33 @@ async function fetchGoogleSheetsDataSource(
     tenantId: string | null
 ) {
     try {
-        const response = await fetch(
-            `http://127.0.0.1:8000/api/tenants/${tenantId}/data-sources/google-sheets`,
-            {
-                method: "GET",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer 12|GzryFEnhHfGDvsKabW1RBHpg4MZhBwO51j2DCJQB45239457`,
-                    accept: "application/json",
-                },
-            }
-        );
+        const url = `http://127.0.0.1:8000/api/v1/tenants/${tenantId}/data-sources/google-sheets`;
+        const response = await fetch(url, {
+            method: "GET",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer 12|GzryFEnhHfGDvsKabW1RBHpg4MZhBwO51j2DCJQB45239457`,
+                accept: "application/json",
+            },
+        });
 
-        const data = await response.json();
+        const text = await response.text();
+        let data: any;
+        try {
+            data = text ? JSON.parse(text) : {};
+        } catch {
+            data = {raw: text};
+        }
 
         if (!response.ok) {
-            throw new Error(data.message);
+            const statusInfo = `HTTP ${response.status}${
+                response.statusText ? ` ${response.statusText}` : ""
+            }`;
+            const msg =
+                data?.message || data?.error || JSON.stringify(data);
+            throw new Error(
+                `Data-sources request failed: ${statusInfo} - ${msg}`
+            );
         }
 
         const extractedSources = extractGoogleSheetsConfigs(data);
@@ -525,7 +558,11 @@ async function fetchGoogleSheetsDataSource(
         };
     } catch (error) {
         console.error(
-            "Error fetching Google Sheets data source:",
+            "Error fetching Google Sheets data source from",
+            `${DATA_SOURCES_API_BASE_URL}`,
+            "tenant:",
+            tenantId,
+            "details:",
             error
         );
         return {
