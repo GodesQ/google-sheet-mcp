@@ -166,13 +166,6 @@ function extractGoogleSheetsConfigs(
     });
 }
 
-/** Centralized auth client (service account) */
-const auth = new JWT({
-    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"], // full access
-});
-
 /**
  * =========================
  *  GOOGLE SHEETS HELPERS
@@ -366,6 +359,7 @@ export async function executeManageSheetData(
         oauth2Client.setCredentials({
             access_token: effectiveAccessToken,
             refresh_token: effectiveRefreshToken,
+            scope: "https://www.googleapis.com/auth/spreadsheets",
         });
 
         // Get a fresh access token (will auto-refresh using refresh_token if needed)
