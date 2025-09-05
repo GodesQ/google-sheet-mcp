@@ -67,7 +67,7 @@ const ENV = z
 // Backend API base for data-sources
 // Prefer explicit DATA_SOURCES_API_BASE_URL, fallback to BACKEND_URL, then local default
 const DATA_SOURCES_API_BASE_URL =
-    ENV.DATA_SOURCES_API_BASE_URL ||
+    process.env.DATA_SOURCES_API_BASE_URL ||
     process.env.BACKEND_URL ||
     "https://320eb388be63.ngrok-free.app";
 
@@ -571,7 +571,7 @@ export async function fetchGoogleSheetsDataSource(
     tenantId: string | null
 ) {
     try {
-        const url = `https://320eb388be63.ngrok-free.app/api/v1/tenants/${tenantId}/data-sources/google-sheets`;
+        const url = `${DATA_SOURCES_API_BASE_URL}/api/v1/tenants/${tenantId}/data-sources/google-sheets`;
         const response = await fetch(url, {
             method: "GET",
             headers: {
