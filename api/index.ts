@@ -8,7 +8,7 @@ import {
     executeManageSheetData,
     ManageSheetParams,
 } from "../src/server.js";
-import { sessionManager } from "../src/sessionManager.js";
+import {sessionManager} from "../src/sessionManager.js";
 import cors from "cors";
 
 const app = express();
@@ -29,7 +29,7 @@ const transports: {
 } = {};
 
 // For Vercel serverless, we need to handle the fact that memory is not shared between invocations
-let isServerlessEnvironment = process.env.VERCEL === '1';
+let isServerlessEnvironment = process.env.VERCEL === "1";
 
 // Cleanup old sessions periodically (older than 30 minutes)
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
@@ -64,6 +64,8 @@ const createMcpServer = () => {
                     "tasks",
                     "projects",
                     "employees",
+                    "users",
+                    "attendances",
                 ]),
                 operation: z.enum([
                     "add",
@@ -77,9 +79,7 @@ const createMcpServer = () => {
                     .record(z.string(), z.string())
                     .nullable()
                     .optional()
-                    .describe(
-                        "Column:value pairs for adding a row"
-                    ),
+                    .describe("Column:value pairs for adding a row"),
 
                 // update/delete
                 rowIndex: z
@@ -123,7 +123,12 @@ const createMcpServer = () => {
                         })
                     )
                     .optional(),
-                limit: z.number().int().positive().optional().default(100),
+                limit: z
+                    .number()
+                    .int()
+                    .positive()
+                    .optional()
+                    .default(100),
                 offset: z.number().int().nonnegative().optional(),
                 // Auth/context
                 tenantId: z.string().min(1),
@@ -173,20 +178,33 @@ app.post("/mcp", async (req, res) => {
         if (sessionId && transports[sessionId]) {
             // Reuse existing transport if available in current request
             transport = transports[sessionId];
-            console.log(`Reusing existing transport for session: ${sessionId}`);
-        } else if (sessionId && await sessionManager.sessionExists(sessionId)) {
+            console.log(
+                `Reusing existing transport for session: ${sessionId}`
+            );
+        } else if (
+            sessionId &&
+            (await sessionManager.sessionExists(sessionId))
+        ) {
             // Session exists in Redis but transport not in memory - recreate transport
-            console.log(`Session exists in Redis, recreating transport: ${sessionId}`);
-            
+            console.log(
+                `Session exists in Redis, recreating transport: ${sessionId}`
+            );
+
             transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => sessionId,
-                onsessioninitialized: async (initializedSessionId) => {
+                onsessioninitialized: async (
+                    initializedSessionId
+                ) => {
                     if (transport) {
                         transports[initializedSessionId] = transport;
                     }
                     // Update session access time
-                    await sessionManager.updateSession(initializedSessionId);
-                    console.log(`Recreated transport for existing session: ${initializedSessionId}`);
+                    await sessionManager.updateSession(
+                        initializedSessionId
+                    );
+                    console.log(
+                        `Recreated transport for existing session: ${initializedSessionId}`
+                    );
                 },
                 enableDnsRebindingProtection: false,
             });
@@ -196,7 +214,9 @@ app.post("/mcp", async (req, res) => {
             currentTransport.onclose = async () => {
                 if (currentTransport?.sessionId) {
                     delete transports[currentTransport.sessionId];
-                    console.log(`Closed transport for session: ${currentTransport.sessionId}`);
+                    console.log(
+                        `Closed transport for session: ${currentTransport.sessionId}`
+                    );
                 }
             };
 
@@ -207,14 +227,20 @@ app.post("/mcp", async (req, res) => {
             const newSessionId = randomUUID();
             transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => newSessionId,
-                onsessioninitialized: async (initializedSessionId) => {
+                onsessioninitialized: async (
+                    initializedSessionId
+                ) => {
                     // Store the transport by session ID
                     if (transport) {
                         transports[initializedSessionId] = transport;
                     }
                     // Create session in Redis
-                    await sessionManager.createSession(initializedSessionId);
-                    console.log(`Created new session: ${initializedSessionId}`);
+                    await sessionManager.createSession(
+                        initializedSessionId
+                    );
+                    console.log(
+                        `Created new session: ${initializedSessionId}`
+                    );
                 },
                 // DNS rebinding protection is disabled by default for backwards compatibility
                 enableDnsRebindingProtection: false,
@@ -226,9 +252,15 @@ app.post("/mcp", async (req, res) => {
                 if (currentTransport?.sessionId) {
                     // Delete session after timeout
                     setTimeout(async () => {
-                        await sessionManager.deleteSession(currentTransport.sessionId!);
-                        delete transports[currentTransport.sessionId!];
-                        console.log(`Closed session: ${currentTransport.sessionId}`);
+                        await sessionManager.deleteSession(
+                            currentTransport.sessionId!
+                        );
+                        delete transports[
+                            currentTransport.sessionId!
+                        ];
+                        console.log(
+                            `Closed session: ${currentTransport.sessionId}`
+                        );
                     }, SESSION_TIMEOUT);
                 }
             };
@@ -238,16 +270,24 @@ app.post("/mcp", async (req, res) => {
         } else if (sessionId && isServerlessEnvironment) {
             // In serverless environment, if session ID is provided but not found in Redis,
             // create a new session with the same ID to maintain continuity
-            console.log(`Serverless environment: Creating new session with provided ID: ${sessionId}`);
-            
+            console.log(
+                `Serverless environment: Creating new session with provided ID: ${sessionId}`
+            );
+
             transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => sessionId,
-                onsessioninitialized: async (initializedSessionId) => {
+                onsessioninitialized: async (
+                    initializedSessionId
+                ) => {
                     if (transport) {
                         transports[initializedSessionId] = transport;
                     }
-                    await sessionManager.createSession(initializedSessionId);
-                    console.log(`Recreated session in serverless environment: ${initializedSessionId}`);
+                    await sessionManager.createSession(
+                        initializedSessionId
+                    );
+                    console.log(
+                        `Recreated session in serverless environment: ${initializedSessionId}`
+                    );
                 },
                 enableDnsRebindingProtection: false,
             });
@@ -257,7 +297,9 @@ app.post("/mcp", async (req, res) => {
             currentTransport.onclose = async () => {
                 if (currentTransport?.sessionId) {
                     delete transports[currentTransport.sessionId];
-                    console.log(`Closed transport in serverless environment: ${currentTransport.sessionId}`);
+                    console.log(
+                        `Closed transport in serverless environment: ${currentTransport.sessionId}`
+                    );
                 }
             };
 
@@ -265,19 +307,29 @@ app.post("/mcp", async (req, res) => {
             await server.connect(transport);
         } else {
             // Invalid request - provide more detailed error information
-            const errorMessage = sessionId 
-                ? `Session ID provided but not found: ${sessionId}` 
+            const errorMessage = sessionId
+                ? `Session ID provided but not found: ${sessionId}`
                 : "No session ID provided and not an initialization request";
-            
+
             console.log(`Session error: ${errorMessage}`);
-            console.log(`Available in-memory sessions: ${Object.keys(transports).join(', ')}`);
-            console.log(`Is serverless environment: ${isServerlessEnvironment}`);
-            
+            console.log(
+                `Available in-memory sessions: ${Object.keys(
+                    transports
+                ).join(", ")}`
+            );
+            console.log(
+                `Is serverless environment: ${isServerlessEnvironment}`
+            );
+
             res.status(400).json({
                 jsonrpc: "2.0",
                 error: {
                     code: -32000,
-                    message: `Bad Request: ${errorMessage}${isServerlessEnvironment ? ' (Serverless environment - sessions may be lost on cold starts)' : ''}`,
+                    message: `Bad Request: ${errorMessage}${
+                        isServerlessEnvironment
+                            ? " (Serverless environment - sessions may be lost on cold starts)"
+                            : ""
+                    }`,
                 },
                 id: null,
             });
@@ -292,18 +344,23 @@ app.post("/mcp", async (req, res) => {
                 jsonrpc: "2.0",
                 error: {
                     code: -32000,
-                    message: "Bad Request: Failed to create or find transport",
+                    message:
+                        "Bad Request: Failed to create or find transport",
                 },
                 id: null,
             });
         }
     } catch (error) {
-        console.error('Error handling MCP request:', error);
+        console.error("Error handling MCP request:", error);
         res.status(500).json({
             jsonrpc: "2.0",
             error: {
                 code: -32603,
-                message: "Internal error: " + (error instanceof Error ? error.message : 'Unknown error'),
+                message:
+                    "Internal error: " +
+                    (error instanceof Error
+                        ? error.message
+                        : "Unknown error"),
             },
             id: null,
         });
@@ -321,37 +378,47 @@ const handleSessionRequest = async (
     if (!sessionId) {
         const errorMessage = "No session ID provided";
         console.log(`Session request error: ${errorMessage}`);
-        res.status(400).send(`Invalid or missing session ID: ${errorMessage}`);
+        res.status(400).send(
+            `Invalid or missing session ID: ${errorMessage}`
+        );
         return;
     }
 
     // Check if transport exists in current request
     if (!transports[sessionId]) {
         // Check if session exists in Redis
-        const sessionExists = await sessionManager.sessionExists(sessionId);
+        const sessionExists = await sessionManager.sessionExists(
+            sessionId
+        );
         if (!sessionExists) {
             const errorMessage = `Session ID provided but not found: ${sessionId}`;
             console.log(`Session request error: ${errorMessage}`);
-            res.status(400).send(`Invalid or missing session ID: ${errorMessage}`);
+            res.status(400).send(
+                `Invalid or missing session ID: ${errorMessage}`
+            );
             return;
         }
-        
+
         // Session exists in Redis but transport not in memory - recreate transport
         console.log(`Recreating transport for session: ${sessionId}`);
-        
+
         const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => sessionId,
             onsessioninitialized: async (initializedSessionId) => {
                 transports[initializedSessionId] = transport;
-                await sessionManager.updateSession(initializedSessionId);
-                console.log(`Recreated transport for session: ${initializedSessionId}`);
+                await sessionManager.updateSession(
+                    initializedSessionId
+                );
+                console.log(
+                    `Recreated transport for session: ${initializedSessionId}`
+                );
             },
             enableDnsRebindingProtection: false,
         });
 
         const server = createMcpServer();
         await server.connect(transport);
-        
+
         await transport.handleRequest(req, res);
         return;
     }
@@ -375,15 +442,17 @@ app.get("/", (req, res) => {
 app.get("/debug/sessions", async (req, res) => {
     try {
         const redisSessions = await sessionManager.getAllSessions();
-        const sessionInfo = redisSessions.map(session => ({
+        const sessionInfo = redisSessions.map((session) => ({
             sessionId: session.sessionId,
             createdAt: new Date(session.createdAt).toISOString(),
-            lastAccessed: new Date(session.lastAccessed).toISOString(),
+            lastAccessed: new Date(
+                session.lastAccessed
+            ).toISOString(),
             age: Date.now() - session.lastAccessed,
             active: true,
-            inMemory: transports[session.sessionId] ? true : false
+            inMemory: transports[session.sessionId] ? true : false,
         }));
-        
+
         res.json({
             activeSessions: sessionInfo,
             totalSessions: sessionInfo.length,
@@ -391,17 +460,22 @@ app.get("/debug/sessions", async (req, res) => {
             serverTime: new Date().toISOString(),
             environment: {
                 isServerless: isServerlessEnvironment,
-                platform: process.env.VERCEL ? 'Vercel' : 'Local',
+                platform: process.env.VERCEL ? "Vercel" : "Local",
                 nodeEnv: process.env.NODE_ENV,
-                storageType: sessionManager.getStorageType()
+                storageType: sessionManager.getStorageType(),
             },
-            warning: isServerlessEnvironment ? "Sessions may be lost on cold starts in serverless environment" : null
+            warning: isServerlessEnvironment
+                ? "Sessions may be lost on cold starts in serverless environment"
+                : null,
         });
     } catch (error) {
-        console.error('Error in debug endpoint:', error);
+        console.error("Error in debug endpoint:", error);
         res.status(500).json({
-            error: 'Failed to get session information',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            error: "Failed to get session information",
+            details:
+                error instanceof Error
+                    ? error.message
+                    : "Unknown error",
         });
     }
 });
@@ -409,21 +483,25 @@ app.get("/debug/sessions", async (req, res) => {
 // Redis connection test endpoint
 app.get("/debug/redis", async (req, res) => {
     try {
-        const isConnected = await sessionManager.testRedisConnection();
+        const isConnected =
+            await sessionManager.testRedisConnection();
         res.json({
             redisConnected: isConnected,
             storageType: sessionManager.getStorageType(),
             environment: {
                 hasRedisUrl: !!process.env.UPSTASH_REDIS_REST_URL,
                 hasRedisToken: !!process.env.UPSTASH_REDIS_REST_TOKEN,
-                isServerless: isServerlessEnvironment
-            }
+                isServerless: isServerlessEnvironment,
+            },
         });
     } catch (error) {
-        console.error('Error testing Redis connection:', error);
+        console.error("Error testing Redis connection:", error);
         res.status(500).json({
-            error: 'Failed to test Redis connection',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            error: "Failed to test Redis connection",
+            details:
+                error instanceof Error
+                    ? error.message
+                    : "Unknown error",
         });
     }
 });

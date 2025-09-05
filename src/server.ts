@@ -201,6 +201,8 @@ const ManageSheetParamsSchema = z.object({
         "tasks",
         "projects",
         "employees",
+        "users",
+        "attendances",
     ]),
     operation: z.enum(["add", "update", "delete", "read"]),
 
